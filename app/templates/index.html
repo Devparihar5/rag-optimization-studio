@@ -1,95 +1,330 @@
-from __future__ import annotations
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RAG Optimization Studio</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-logo">
+        <div class="logo-icon">⚗️</div>
+        <span class="logo-text">RAG Studio</span>
+      </div>
+      <nav class="sidebar-nav">
+        <a href="#" class="nav-item active" data-tab="overview">
+          <span class="nav-icon">📊</span> Overview
+        </a>
+        <a href="#" class="nav-item" data-tab="experiments">
+          <span class="nav-icon">🧪</span> Experiments
+        </a>
+        <a href="#" class="nav-item" data-tab="datasets">
+          <span class="nav-icon">🗄️</span> Datasets
+        </a>
+        <a href="#" class="nav-item" data-tab="benchmarks">
+          <span class="nav-icon">🎯</span> Benchmarks
+        </a>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="version-badge">MVP v0.1</div>
+      </div>
+    </aside>
 
-import math
-import re
-from dataclasses import dataclass
-from typing import Sequence
+    <!-- Main content -->
+    <div class="main-content">
 
+      <!-- Top bar -->
+      <header class="topbar">
+        <div class="topbar-left">
+          <h1 class="page-title" id="page-title">Overview</h1>
+        </div>
+        <div class="topbar-right">
+          <div class="status-dot"></div>
+          <span class="status-text">Server running</span>
+        </div>
+      </header>
 
-@dataclass
-class DocumentChunk:
-    id: str
-    text: str
-    source: str
-    page: int = 1
+      <!-- TAB: Overview -->
+      <section id="tab-overview" class="tab-content active">
+        <div class="stats-grid" id="stats-grid">
+          <div class="stat-card">
+            <div class="stat-icon">🗄️</div>
+            <div class="stat-info">
+              <div class="stat-value" id="stat-datasets">—</div>
+              <div class="stat-label">Datasets</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">🎯</div>
+            <div class="stat-info">
+              <div class="stat-value" id="stat-benchmarks">—</div>
+              <div class="stat-label">Benchmarks</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">🧪</div>
+            <div class="stat-info">
+              <div class="stat-value" id="stat-experiments">—</div>
+              <div class="stat-label">Experiments</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">⚡</div>
+            <div class="stat-info">
+              <div class="stat-value" id="stat-running">—</div>
+              <div class="stat-label">Running</div>
+            </div>
+          </div>
+        </div>
 
+        <div class="two-col">
+          <div class="card">
+            <div class="card-header">
+              <h2>Recent experiments</h2>
+            </div>
+            <div id="recent-experiments">
+              <div class="empty-state">
+                <div class="empty-icon">🧪</div>
+                <p>No experiments yet. Create one to get started.</p>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <h2>Pipeline tips</h2>
+            </div>
+            <ul class="tip-list">
+              <li>Start with <strong>Hybrid RRF</strong> retrieval as your baseline</li>
+              <li>Enable <strong>reranking</strong> to boost precision at no latency cost</li>
+              <li>Test <strong>chunk sizes</strong> between 256–1024 tokens</li>
+              <li>Use <strong>sentence-aware</strong> chunking for conversational corpora</li>
+              <li>Compare <strong>MRR</strong> and <strong>NDCG@k</strong> across runs</li>
+            </ul>
+          </div>
+        </div>
+      </section>
 
-class RetrievalEngine:
-    def __init__(self, chunks: Sequence[DocumentChunk] | None = None):
-        self.chunks = list(chunks or [])
+      <!-- TAB: Experiments -->
+      <section id="tab-experiments" class="tab-content">
+        <div class="toolbar">
+          <button class="btn btn-primary" id="btn-new-experiment">+ New experiment</button>
+        </div>
 
-    def set_chunks(self, chunks: Sequence[DocumentChunk]) -> None:
-        self.chunks = list(chunks)
+        <div class="card" style="margin-top:16px;">
+          <div class="card-header">
+            <h2>All experiments</h2>
+          </div>
+          <div id="experiments-list">
+            <div class="empty-state">
+              <div class="empty-icon">🧪</div>
+              <p>No experiments yet.</p>
+            </div>
+          </div>
+        </div>
 
-    @staticmethod
-    def _tokenize(text: str) -> list[str]:
-        return re.findall(r"[a-z0-9]+", text.lower())
+        <!-- New experiment drawer -->
+        <div id="experiment-drawer" class="drawer hidden">
+          <div class="drawer-inner">
+            <div class="drawer-header">
+              <h2>New experiment</h2>
+              <button class="btn-close" id="close-drawer">✕</button>
+            </div>
+            <form id="experiment-form" class="form-grid" novalidate>
 
-    def retrieve(self, query: str, top_k: int = 5, strategy: str = "hybrid") -> list[dict[str, Any]]:
-        if not self.chunks:
-            return []
+              <div class="form-section-title">Identification</div>
+              <div class="form-row">
+                <label class="form-label">
+                  Experiment name <span class="required">*</span>
+                  <input class="form-input" name="name" placeholder="Hybrid-RRF baseline" required />
+                </label>
+                <label class="form-label">
+                  Dataset ID <span class="required">*</span>
+                  <input class="form-input" name="dataset_id" placeholder="dataset-001" required />
+                </label>
+              </div>
+              <label class="form-label">
+                Benchmark ID <span class="optional">(optional)</span>
+                <input class="form-input" name="benchmark_id" placeholder="benchmark-001" />
+              </label>
 
-        normalized_strategy = (strategy or "hybrid").lower()
-        query_tokens = self._tokenize(query)
-        if not query_tokens:
-            return []
+              <div class="form-section-title">Chunking</div>
+              <div class="form-row">
+                <label class="form-label">
+                  Strategy
+                  <select class="form-input" name="chunking_strategy">
+                    <option value="fixed-size">Fixed-size</option>
+                    <option value="sentence-aware">Sentence-aware</option>
+                    <option value="recursive">Recursive</option>
+                  </select>
+                </label>
+                <label class="form-label">
+                  Chunk size (tokens)
+                  <input class="form-input" name="chunk_size" type="number" value="500" min="100" max="2000" />
+                </label>
+                <label class="form-label">
+                  Overlap (tokens)
+                  <input class="form-input" name="overlap" type="number" value="50" min="0" max="500" />
+                </label>
+              </div>
 
-        candidate_scores: list[tuple[str, float]] = []
-        for chunk in self.chunks:
-            dense_score = self._dense_score(query_tokens, chunk.text)
-            bm25_score = self._bm25_score(query_tokens, chunk.text)
-            if normalized_strategy == "dense":
-                final_score = dense_score
-            elif normalized_strategy == "bm25":
-                final_score = bm25_score
-            else:
-                final_score = dense_score + bm25_score
-            candidate_scores.append((chunk.id, final_score))
+              <div class="form-section-title">Retrieval</div>
+              <div class="form-row">
+                <label class="form-label">
+                  Method
+                  <select class="form-input" name="retrieval_method">
+                    <option value="dense">Dense</option>
+                    <option value="bm25">BM25</option>
+                    <option value="hybrid_rrf" selected>Hybrid RRF</option>
+                  </select>
+                </label>
+                <label class="form-label">
+                  Top-k
+                  <input class="form-input" name="top_k" type="number" value="5" min="1" max="50" />
+                </label>
+              </div>
+              <div class="form-row">
+                <label class="form-label toggle-label">
+                  <div class="toggle-wrap">
+                    <input name="reranking" type="checkbox" class="toggle-input" checked />
+                    <span class="toggle-track"></span>
+                  </div>
+                  Enable reranking
+                </label>
+                <label class="form-label toggle-label">
+                  <div class="toggle-wrap">
+                    <input name="query_rewrite" type="checkbox" class="toggle-input" />
+                    <span class="toggle-track"></span>
+                  </div>
+                  Query rewriting
+                </label>
+              </div>
 
-        ranked = sorted(candidate_scores, key=lambda pair: pair[1], reverse=True)[:top_k]
-        results = []
-        for chunk_id, score in ranked:
-            chunk = next(item for item in self.chunks if item.id == chunk_id)
-            results.append({
-                "chunk_id": chunk.id,
-                "score": round(score, 4),
-                "source": chunk.source,
-                "page": chunk.page,
-                "text": chunk.text,
-            })
-        return results
+              <div class="form-section-title">Models</div>
+              <div class="form-row">
+                <label class="form-label">
+                  Embedding model
+                  <input class="form-input" name="embedding_model" value="sentence-transformers/all-MiniLM-L6-v2" />
+                </label>
+                <label class="form-label">
+                  Generation model
+                  <input class="form-input" name="generation_model" value="gpt-4o-mini" />
+                </label>
+              </div>
 
-    @staticmethod
-    def _dense_score(query_tokens: list[str], text: str) -> float:
-        text_tokens = RetrievalEngine._tokenize(text)
-        if not text_tokens:
-            return 0.0
-        query_set = set(query_tokens)
-        overlap = sum(1 for token in query_set if token in text_tokens)
-        return overlap / len(text_tokens)
+              <label class="form-label">
+                Notes
+                <textarea class="form-input" name="notes" rows="3" placeholder="Describe what you are testing…"></textarea>
+              </label>
 
-    @staticmethod
-    def _bm25_score(query_tokens: list[str], text: str) -> float:
-        tokens = RetrievalEngine._tokenize(text)
-        if not tokens:
-            return 0.0
-        doc_len = len(tokens)
-        total_tokens = len(tokens)
-        term_freq = {}
-        for token in tokens:
-            term_freq[token] = term_freq.get(token, 0) + 1
+              <div class="form-actions">
+                <button type="button" class="btn btn-ghost" id="cancel-experiment">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save experiment</button>
+              </div>
+              <div id="form-status"></div>
+            </form>
+          </div>
+        </div>
+        <div id="drawer-backdrop" class="drawer-backdrop hidden"></div>
+      </section>
 
-        score = 0.0
-        for token in set(query_tokens):
-            if token not in term_freq:
-                continue
-            tf = term_freq[token]
-            idf = math.log((1 + 1) / (1 + tf)) + 1
-            score += idf * (tf * (1.5 + 1) / (tf + 1.5 * (1 - 0.75 + 0.75 * (doc_len / max(total_tokens, 1)))))
-        return score
+      <!-- TAB: Datasets -->
+      <section id="tab-datasets" class="tab-content">
+        <div class="toolbar">
+          <button class="btn btn-primary" id="btn-new-dataset">+ New dataset</button>
+        </div>
+        <div class="card" style="margin-top:16px;">
+          <div class="card-header"><h2>Datasets</h2></div>
+          <div id="datasets-list">
+            <div class="empty-state">
+              <div class="empty-icon">🗄️</div>
+              <p>No datasets yet.</p>
+            </div>
+          </div>
+        </div>
 
+        <!-- New dataset modal -->
+        <div id="dataset-modal" class="modal hidden">
+          <div class="modal-box">
+            <div class="drawer-header">
+              <h2>New dataset</h2>
+              <button class="btn-close" id="close-dataset-modal">✕</button>
+            </div>
+            <form id="dataset-form" class="form-grid" novalidate>
+              <label class="form-label">
+                Name <span class="required">*</span>
+                <input class="form-input" name="name" placeholder="technical-docs" required />
+              </label>
+              <label class="form-label">
+                Description
+                <input class="form-input" name="description" placeholder="Short description…" />
+              </label>
+              <label class="form-label">
+                Source type
+                <select class="form-input" name="source_type">
+                  <option value="pdf">PDF</option>
+                  <option value="markdown">Markdown</option>
+                  <option value="text">Plain text</option>
+                  <option value="html">HTML</option>
+                </select>
+              </label>
+              <div class="form-actions">
+                <button type="button" class="btn btn-ghost" id="cancel-dataset">Cancel</button>
+                <button type="submit" class="btn btn-primary">Create dataset</button>
+              </div>
+              <div id="dataset-status"></div>
+            </form>
+          </div>
+        </div>
+      </section>
 
-Any = object
+      <!-- TAB: Benchmarks -->
+      <section id="tab-benchmarks" class="tab-content">
+        <div class="toolbar">
+          <button class="btn btn-primary" id="btn-new-benchmark">+ New benchmark</button>
+        </div>
+        <div class="card" style="margin-top:16px;">
+          <div class="card-header"><h2>Benchmarks</h2></div>
+          <div id="benchmarks-list">
+            <div class="empty-state">
+              <div class="empty-icon">🎯</div>
+              <p>No benchmarks yet.</p>
+            </div>
+          </div>
+        </div>
 
+        <!-- New benchmark modal -->
+        <div id="benchmark-modal" class="modal hidden">
+          <div class="modal-box">
+            <div class="drawer-header">
+              <h2>New benchmark</h2>
+              <button class="btn-close" id="close-benchmark-modal">✕</button>
+            </div>
+            <form id="benchmark-form" class="form-grid" novalidate>
+              <label class="form-label">
+                Name <span class="required">*</span>
+                <input class="form-input" name="name" placeholder="QA-eval-v1" required />
+              </label>
+              <label class="form-label">
+                Dataset ID <span class="required">*</span>
+                <input class="form-input" name="dataset_id" placeholder="dataset-001" required />
+              </label>
+              <div class="form-actions">
+                <button type="button" class="btn btn-ghost" id="cancel-benchmark">Cancel</button>
+                <button type="submit" class="btn btn-primary">Create benchmark</button>
+              </div>
+              <div id="benchmark-status"></div>
+            </form>
+          </div>
+        </div>
+      </section>
 
-__all__ = ["DocumentChunk", "RetrievalEngine"]
+    </div><!-- /main-content -->
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
