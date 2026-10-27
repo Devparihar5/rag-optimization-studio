@@ -1,4 +1,3 @@
-# README.md
 # RAG Optimization Studio
 
 A single-server experimentation platform for benchmarking and improving retrieval-augmented generation (RAG) pipelines.
