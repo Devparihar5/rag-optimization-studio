@@ -1,689 +1,94 @@
-const state = {
-  overview: null,
-  datasets: [],
-  benchmarks: [],
-  experiments: [],
-  comparison: null,
-};
-
-const els = {
-  overview: document.getElementById('overview'),
-  focusAreas: document.getElementById('focus-areas'),
-  datasetsPanel: document.getElementById('datasets-panel'),
-  benchmarksPanel: document.getElementById('benchmarks-panel'),
-  experimentTable: document.getElementById('experiment-table'),
-  comparisonPanel: document.getElementById('comparison-panel'),
-  experimentForm: document.getElementById('experiment-form'),
-  status: document.getElementById('status-message'),
-};
-
-async function fetchJson(url, options = {}) {
-  const response = await fetch(url, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-  });
-  if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`);
-  }
-  return response.json();
-}
-
-function renderOverview(data) {
-  if (!data) return;
-
-  const stats = data.stats || {};
-  const cards = [
-    { label: 'Datasets', value: stats.datasets ?? 0 },
-    { label: 'Benchmarks', value: stats.benchmarks ?? 0 },
-    { label: 'Experiments', value: stats.experiments ?? 0 },
-    { label: 'Running', value: stats.active_experiments ?? 0 },
-  ];
-
-  els.overview.innerHTML = cards
-    .map(
-      (card) => `
-        <div class="card">
-          <div class="badge">${card.label}</div>
-          <div class="metric">${card.value}</div>
-          <div>Tracked across the project</div>
-        </div>
-      `,
-    )
-    .join('');
-
-  els.focusAreas.innerHTML = (data.focus_areas || [])
-    .map((item) => `<li>${item}</li>`)
-    .join('');
-}
-
-function renderDatasets() {
-  if (!state.datasets.length) {
-    els.datasetsPanel.innerHTML = '<div class="empty">No datasets created yet.</div>';
-    return;
-  }
-
-  els.datasetsPanel.innerHTML = state.datasets
-    .map(
-      (dataset) => `
-        <div class="mini-card">
-          <strong>${dataset.name}</strong>
-          <div>${dataset.description || 'No description provided.'}</div>
-          <small>${dataset.source_type} • ${dataset.document_count} docs</small>
-        </div>
-      `,
-    )
-    .join('');
-}
-
-function renderBenchmarks() {
-  if (!state.benchmarks.length) {
-    els.benchmarksPanel.innerHTML = '<div class="empty">No benchmarks created yet.</div>';
-    return;
-  }
-
-  els.benchmarksPanel.innerHTML = state.benchmarks
-    .map(
-      (benchmark) => `
-        <div class="mini-card">
-          <strong>${benchmark.name}</strong>
-          <div>Dataset: ${benchmark.dataset_id}</div>
-          <small>${benchmark.question_count} questions</small>
-        </div>
-      `,
-    )
-    .join('');
-}
-
-function renderComparison() {
-  if (!state.comparison || !state.comparison.experiment_ids.length) {
-    els.comparisonPanel.innerHTML = '<div class="empty">Select experiments to compare.</div>';
-    return;
-  }
-
-  const summary = state.comparison.summary || {};
-  const rows = state.comparison.experiment_ids.map((id) => {
-    const result = summary[id] || {};
-    return `
-      <div class="compare-box">
-        <strong>${id}</strong>
-        <div class="result-grid">
-          <div class="metric-chip">Recall: ${Number(result.recall_at_k || 0).toFixed(2)}</div>
-          <div class="metric-chip">Precision: ${Number(result.precision_at_k || 0).toFixed(2)}</div>
-          <div class="metric-chip">MRR: ${Number(result.mrr || 0).toFixed(2)}</div>
-          <div class="metric-chip">nDCG: ${Number(result.ndcg_at_k || 0).toFixed(2)}</div>
-        </div>
-      </div>
-    `;
-  }).join('');
-
-  els.comparisonPanel.innerHTML = `
-    <div>
-      <div><strong>Best by Recall:</strong> ${state.comparison.best_by_recall || 'n/a'}</div>
-      <div><strong>Best by nDCG:</strong> ${state.comparison.best_by_quality || 'n/a'}</div>
-      ${rows}
-    </div>
-  `;
-}
-
-function renderExperiments() {
-  if (!state.experiments.length) {
-    els.experimentTable.innerHTML = '<div class="empty">No experiments yet.</div>';
-    return;
-  }
-
-  els.experimentTable.innerHTML = `
-    <table class="table">
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Dataset</th>
-          <th>Retrieval</th>
-          <th>Chunking</th>
-          <th>Top-k</th>
-          <th>Status</th>
-          <th>Action</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${state.experiments
-          .map(
-            (exp) => `
-              <tr>
-                <td>${exp.name}</td>
-                <td>${exp.dataset_id}</td>
-                <td>${exp.config.retrieval_method}</td>
-                <td>${exp.config.chunking_strategy}</td>
-                <td>${exp.config.top_k}</td>
-                <td><span class="status-pill">${exp.status}</span></td>
-                <td class="row-actions">
-                  <button class="secondary" type="button" data-run-id="${exp.id}">Run</button>
-                  <label class="check-row">
-                    <input type="checkbox" value="${exp.id}" class="compare-toggle" />
-                    Compare
-                  </label>
-                </td>
-              </tr>
-            `,
-          )
-          .join('')}
-      </tbody>
-    </table>
-  `;
-
-  els.experimentTable.querySelectorAll('[data-run-id]').forEach((button) => {
-    button.addEventListener('click', async () => {
-      const experimentId = button.getAttribute('data-run-id');
-      els.status.textContent = 'Running experiment...';
-      try {
-        await fetchJson(`/api/experiments/${experimentId}/run`, { method: 'POST' });
-        els.status.textContent = 'Experiment completed.';
-        await loadExperiments();
-      } catch (error) {
-        els.status.textContent = 'Could not run experiment.';
-        console.error(error);
-      }
-    });
-  });
-
-  els.experimentTable.querySelectorAll('.compare-toggle').forEach((checkbox) => {
-    checkbox.addEventListener('change', async () => {
-      const selected = [...document.querySelectorAll('.compare-toggle:checked')].map((el) => el.value);
-      if (!selected.length) {
-        state.comparison = null;
-        renderComparison();
-        return;
-      }
-      try {
-        const response = await fetchJson('/api/comparisons', {
-          method: 'POST',
-          body: JSON.stringify({ experiment_ids: selected }),
-        });
-        state.comparison = response.comparison;
-        renderComparison();
-      } catch (error) {
-        console.error(error);
-      }
-    });
-  });
-}
-
-async function loadOverview() {
-  const data = await fetchJson('/api/overview');
-  state.overview = data;
-  renderOverview(data);
-}
-
-async function loadDatasets() {
-  const response = await fetchJson('/api/datasets');
-  state.datasets = response.datasets || [];
-  renderDatasets();
-}
-
-async function loadBenchmarks() {
-  const response = await fetchJson('/api/benchmarks');
-  state.benchmarks = response.benchmarks || [];
-  renderBenchmarks();
-}
-
-async function loadExperiments() {
-  const response = await fetchJson('/api/experiments');
-  state.experiments = response.experiments || [];
-  renderExperiments();
-  renderComparison();
-}
-
-els.experimentForm.addEventListener('submit', async (event) => {
-  event.preventDefault();
-  const formData = new FormData(els.experimentForm);
-  const payload = {
-    name: formData.get('name'),
-    dataset_id: formData.get('dataset_id'),
-    benchmark_id: formData.get('benchmark_id') || null,
-    config: {
-      chunking_strategy: formData.get('chunking_strategy'),
-      chunk_size: Number(formData.get('chunk_size')),
-      overlap: Number(formData.get('overlap')),
-      retrieval_method: formData.get('retrieval_method'),
-      top_k: Number(formData.get('top_k')),
-      reranking: formData.get('reranking') === 'on',
-      embedding_model: formData.get('embedding_model'),
-      generation_model: formData.get('generation_model'),
-      query_rewrite: formData.get('query_rewrite') === 'on',
-      notes: formData.get('notes') || '',
-    },
-  };
-
-  els.status.textContent = 'Creating experiment...';
-
-  try {
-    await fetchJson('/api/experiments', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
-    els.status.textContent = 'Experiment created successfully.';
-    els.experimentForm.reset();
-    await loadOverview();
-    await loadExperiments();
-  } catch (error) {
-    els.status.textContent = 'Failed to create experiment.';
-    console.error(error);
-  }
-});
-
-async function init() {
-  try {
-    await loadOverview();
-    await loadDatasets();
-    await loadBenchmarks();
-    await loadExperiments();
-  } catch (error) {
-    console.error(error);
-    els.status.textContent = 'Could not load app data.';
-  }
-}
-
-init();
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+from __future__ import annotations
+
+from pydantic import BaseModel, Field
+
+
+class DatasetCreateRequest(BaseModel):
+    name: str = Field(min_length=3, max_length=200)
+    description: str = Field(default="")
+    source_type: str = Field(default="pdf")
+
+
+class DatasetRecord(BaseModel):
+    id: str
+    name: str
+    description: str
+    source_type: str
+    created_at: str
+    document_count: int = 0
+
+
+class BenchmarkQuestion(BaseModel):
+    question: str
+    answer: str | None = None
+    relevant_passages: list[str] = Field(default_factory=list)
+
+
+class BenchmarkCreateRequest(BaseModel):
+    name: str = Field(min_length=3, max_length=200)
+    dataset_id: str
+    questions: list[BenchmarkQuestion] = Field(default_factory=list)
+
+
+class BenchmarkRecord(BaseModel):
+    id: str
+    name: str
+    dataset_id: str
+    question_count: int
+    created_at: str
+
+
+class ExperimentConfig(BaseModel):
+    chunking_strategy: str = Field(default="fixed-size")
+    chunk_size: int = Field(default=500, ge=100, le=2000)
+    overlap: int = Field(default=50, ge=0, le=500)
+    retrieval_method: str = Field(default="hybrid")
+    top_k: int = Field(default=5, ge=1, le=50)
+    reranking: bool = Field(default=True)
+    embedding_model: str = Field(default="sentence-transformers/all-MiniLM-L6-v2")
+    generation_model: str = Field(default="gpt-4o-mini")
+    query_rewrite: bool = Field(default=False)
+    notes: str | None = None
+
+
+class ExperimentCreateRequest(BaseModel):
+    name: str = Field(min_length=3, max_length=200)
+    dataset_id: str
+    benchmark_id: str | None = None
+    config: ExperimentConfig = Field(default_factory=ExperimentConfig)
+
+
+class RetrievalRow(BaseModel):
+    question: str
+    retrieved_chunks: list[str]
+    recall_at_k: float
+    precision_at_k: float
+    mrr: float
+    ndcg_at_k: float
+    latency_ms: int
+    token_cost: float
+
+
+class ExperimentRecord(BaseModel):
+    id: str
+    name: str
+    dataset_id: str
+    benchmark_id: str | None
+    config: ExperimentConfig
+    status: str
+    created_at: str
+    results: list[RetrievalRow] = Field(default_factory=list)
+    summary: dict[str, float] = Field(default_factory=dict)
+
+
+__all__ = [
+    "DatasetCreateRequest",
+    "DatasetRecord",
+    "BenchmarkQuestion",
+    "BenchmarkCreateRequest",
+    "BenchmarkRecord",
+    "ExperimentConfig",
+    "ExperimentCreateRequest",
+    "RetrievalRow",
+    "ExperimentRecord",
+]
