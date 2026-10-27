@@ -1,96 +1,68 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-import math
-import re
-from typing import Any, Sequence
+from typing import Iterable
 
 
-@dataclass
-class DocumentChunk:
-    id: str
-    text: str
-    source: str
-    page: int = 1
+def _safe_divide(numerator: float, denominator: float) -> float:
+    if denominator == 0:
+        return 0.0
+    return numerator / denominator
 
 
-class RetrievalEngine:
-    def __init__(self, chunks: Sequence[DocumentChunk] | None = None):
-        self.chunks = list(chunks or [])
-
-    def set_chunks(self, chunks: Sequence[DocumentChunk]) -> None:
-        self.chunks = list(chunks)
-
-    @staticmethod
-    def _tokenize(text: str) -> list[str]:
-        return re.findall(r"[a-z0-9]+", text.lower())
-
-    def retrieve(self, query: str, top_k: int = 5, strategy: str = "hybrid") -> list[dict[str, Any]]:
-        if not self.chunks:
-            return []
-
-        normalized_strategy = (strategy or "hybrid").lower()
-        query_tokens = self._tokenize(query)
-        if not query_tokens:
-            return []
-
-        scored: list[tuple[str, float]] = []
-        for chunk in self.chunks:
-            dense_score = self._dense_score(query_tokens, chunk.text)
-            bm25_score = self._bm25_score(query_tokens, chunk.text)
-            if normalized_strategy == "dense":
-                final_score = dense_score
-            elif normalized_strategy == "bm25":
-                final_score = bm25_score
-            else:
-                final_score = dense_score + bm25_score
-            scored.append((chunk.id, final_score))
-
-        ranked = sorted(scored, key=lambda item: item[1], reverse=True)[:top_k]
-        results: list[dict[str, Any]] = []
-        chunk_by_id = {chunk.id: chunk for chunk in self.chunks}
-        for chunk_id, score in ranked:
-            chunk = chunk_by_id[chunk_id]
-            results.append(
-                {
-                    "chunk_id": chunk.id,
-                    "score": round(score, 4),
-                    "source": chunk.source,
-                    "page": chunk.page,
-                    "text": chunk.text,
-                }
-            )
-        return results
-
-    @staticmethod
-    def _dense_score(query_tokens: list[str], text: str) -> float:
-        text_tokens = RetrievalEngine._tokenize(text)
-        if not text_tokens:
-            return 0.0
-        query_set = set(query_tokens)
-        overlap = sum(1 for token in query_set if token in text_tokens)
-        return overlap / len(text_tokens)
-
-    @staticmethod
-    def _bm25_score(query_tokens: list[str], text: str) -> float:
-        tokens = RetrievalEngine._tokenize(text)
-        if not tokens:
-            return 0.0
-
-        doc_len = len(tokens)
-        tf = {}
-        for token in tokens:
-            tf[token] = tf.get(token, 0) + 1
-
-        score = 0.0
-        for token in set(query_tokens):
-            if token not in tf:
-                continue
-            term_freq = tf[token]
-            idf = math.log((1 + 1) / (1 + term_freq)) + 1
-            normalized = 1.5 * (1 - 0.75 + 0.75 * (doc_len / max(doc_len, 1)))
-            score += idf * ((term_freq * (1.5 + 1)) / (term_freq + 1.5 * normalized))
-        return score
+def precision_at_k(retrieved: Iterable[str], relevant: Iterable[str], k: int) -> float:
+    retrieved_list = list(retrieved)[:k]
+    relevant_set = set(relevant)
+    hits = sum(1 for item in retrieved_list if item in relevant_set)
+    return _safe_divide(hits, len(retrieved_list))
 
 
-__all__ = ["DocumentChunk", "RetrievalEngine"]
+def recall_at_k(retrieved: Iterable[str], relevant: Iterable[str], k: int) -> float:
+    retrieved_list = list(retrieved)[:k]
+    relevant_set = set(relevant)
+    hits = sum(1 for item in retrieved_list if item in relevant_set)
+    return _safe_divide(hits, len(relevant_set))
+
+
+def mrr(retrieved: Iterable[str], relevant: Iterable[str]) -> float:
+    relevant_set = set(relevant)
+    for idx, item in enumerate(retrieved, start=1):
+        if item in relevant_set:
+            return 1.0 / idx
+    return 0.0
+
+
+def ndcg_at_k(retrieved: Iterable[str], relevant: Iterable[str], k: int) -> float:
+    retrieved_list = list(retrieved)[:k]
+    relevant_set = set(relevant)
+    dcg = 0.0
+    for rank, item in enumerate(retrieved_list, start=1):
+        if item in relevant_set:
+            dcg += 1.0 / __import__("math").log2(rank + 1)
+
+    ideal_items = list(relevant_set)[:k]
+    ideal_dcg = 0.0
+    for rank, _ in enumerate(ideal_items, start=1):
+        ideal_dcg += 1.0 / __import__("math").log2(rank + 1)
+
+    return _safe_divide(dcg, ideal_dcg)
+
+
+def compute_metrics(retrieved: Iterable[str], relevant: Iterable[str], *, k: int = 5) -> dict[str, float]:
+    retrieved_list = list(retrieved)
+    relevant_list = list(relevant)
+
+    return {
+        "precision_at_k": precision_at_k(retrieved_list, relevant_list, k),
+        "recall_at_k": recall_at_k(retrieved_list, relevant_list, k),
+        "mrr": mrr(retrieved_list, relevant_list),
+        "ndcg_at_k": ndcg_at_k(retrieved_list, relevant_list, k),
+    }
+
+
+__all__ = [
+    "compute_metrics",
+    "precision_at_k",
+    "recall_at_k",
+    "mrr",
+    "ndcg_at_k",
+]
