@@ -1,165 +1,129 @@
-body {
-  margin: 0;
-  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: #f3f6fb;
-  color: #152238;
-}
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RAG Optimization Studio</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <div class="topbar">
+        <div class="badge">Single-server MVP</div>
+      </div>
 
-* { box-sizing: border-box; }
+      <section class="hero">
+        <h1>RAG Optimization Studio</h1>
+        <p>
+          A benchmarking platform for comparing chunking, retrieval, reranking, and answer
+          generation strategies in a fair, reproducible way.
+        </p>
+      </section>
 
-.app-shell {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 32px 20px 80px;
-}
+      <section id="overview" class="grid"></section>
 
-.topbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 24px;
-}
+      <div class="layout">
+        <section class="card">
+          <h2>Project status</h2>
+          <ul id="focus-areas"></ul>
 
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.8rem;
-  padding: 6px 10px;
-  border-radius: 999px;
-  background: #dfeafc;
-  color: #1847a7;
-  font-weight: 700;
-}
+          <div class="section-block">
+            <h3>Datasets</h3>
+            <div id="datasets-panel"></div>
+          </div>
 
-h1, h2, h3 {
-  margin-top: 0;
-}
+          <div class="section-block">
+            <h3>Benchmarks</h3>
+            <div id="benchmarks-panel"></div>
+          </div>
 
-.hero {
-  background: linear-gradient(135deg, #0f172a 0%, #1d4ed8 100%);
-  color: white;
-  border-radius: 20px;
-  padding: 28px;
-  box-shadow: 0 18px 40px rgba(29, 78, 216, 0.22);
-}
+          <div class="section-block">
+            <h3>Experiments</h3>
+            <div id="experiment-table"></div>
+          </div>
+        </section>
 
-.hero p {
-  margin-bottom: 0;
-  max-width: 760px;
-  color: rgba(255, 255, 255, 0.8);
-}
+        <section class="card">
+          <h2>Create experiment</h2>
+          <form id="experiment-form">
+            <label>
+              Experiment name
+              <input name="name" placeholder="Hybrid rerank benchmark" required />
+            </label>
 
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 18px;
-  margin-top: 24px;
-}
+            <label>
+              Dataset ID
+              <input name="dataset_id" placeholder="dataset-demo" required />
+            </label>
 
-.card {
-  background: white;
-  border-radius: 16px;
-  padding: 20px;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
-}
+            <label>
+              Benchmark ID (optional)
+              <input name="benchmark_id" placeholder="benchmark-demo" />
+            </label>
 
-.metric {
-  font-size: 2rem;
-  font-weight: 800;
-  margin: 12px 0 8px;
-}
+            <label>
+              Chunking strategy
+              <select name="chunking_strategy">
+                <option value="fixed-size">Fixed-size</option>
+                <option value="sentence-aware">Sentence-aware</option>
+                <option value="recursive">Recursive</option>
+              </select>
+            </label>
 
-.layout {
-  display: grid;
-  grid-template-columns: 1.2fr 0.8fr;
-  gap: 24px;
-  margin-top: 28px;
-}
+            <label>
+              Chunk size
+              <input name="chunk_size" type="number" value="500" min="100" max="2000" />
+            </label>
 
-form {
-  display: grid;
-  gap: 14px;
-}
+            <label>
+              Overlap
+              <input name="overlap" type="number" value="50" min="0" max="500" />
+            </label>
 
-label {
-  display: grid;
-  gap: 6px;
-  font-weight: 600;
-  color: #1b2d4a;
-}
+            <label>
+              Retrieval method
+              <select name="retrieval_method">
+                <option value="dense">Dense</option>
+                <option value="bm25">BM25</option>
+                <option value="hybrid_rrf" selected>Hybrid RRF</option>
+              </select>
+            </label>
 
-input, select, textarea, button {
-  font: inherit;
-}
+            <label>
+              Top-k
+              <input name="top_k" type="number" value="5" min="1" max="50" />
+            </label>
 
-input, select, textarea {
-  width: 100%;
-  border: 1px solid #d8e1f0;
-  border-radius: 10px;
-  background: #f8fbff;
-  padding: 10px 12px;
-  color: #152238;
-}
+            <label>
+              Embedding model
+              <input name="embedding_model" value="sentence-transformers/all-MiniLM-L6-v2" />
+            </label>
 
-textarea {
-  min-height: 90px;
-  resize: vertical;
-}
+            <label>
+              Generation model
+              <input name="generation_model" value="gpt-4o-mini" />
+            </label>
 
-button {
-  border: 0;
-  border-radius: 10px;
-  background: #1d4ed8;
-  color: white;
-  font-weight: 700;
-  padding: 12px 16px;
-  cursor: pointer;
-  transition: transform 0.15s ease, opacity 0.15s ease;
-}
+            <label>
+              <input name="reranking" type="checkbox" checked /> Enable reranking
+            </label>
 
-button:hover {
-  transform: translateY(-1px);
-  opacity: 0.96;
-}
+            <label>
+              <input name="query_rewrite" type="checkbox" /> Query rewriting
+            </label>
 
-ul {
-  margin: 0;
-  padding-left: 18px;
-}
+            <label>
+              Notes
+              <textarea name="notes" placeholder="Example: compare hybrid retrieval against dense baseline with reranking enabled."></textarea>
+            </label>
 
-li {
-  margin-bottom: 6px;
-}
+            <button type="submit">Save experiment</button>
+            <div id="status-message" class="empty"></div>
+          </form>
+        </section>
+      </div>
+    </div>
 
-.table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 18px;
-}
-
-.table th, .table td {
-  text-align: left;
-  padding: 10px 8px;
-  border-bottom: 1px solid #edf2f9;
-}
-
-.empty {
-  color: #576b8c;
-}
-
-.status-pill {
-  display: inline-block;
-  padding: 5px 10px;
-  border-radius: 999px;
-  background: #e3f7ed;
-  color: #18794e;
-  font-weight: 700;
-  font-size: 0.8rem;
-}
-
-@media (max-width: 820px) {
-  .layout {
-    grid-template-columns: 1fr;
-  }
-}
+    <script src="/static/app.js"></script>
+  </body>
+</html>
