@@ -1,134 +1,628 @@
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>RAG Optimization Studio</title>
-    <link rel="stylesheet" href="/static/styles.css" />
-  </head>
-  <body>
-    <div class="app-shell">
-      <div class="topbar">
-        <div class="badge">Single-server MVP</div>
-      </div>
+/* ── Reset & base ──────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-      <section class="hero">
-        <h1>RAG Optimization Studio</h1>
-        <p>
-          A benchmarking platform for comparing chunking, retrieval, reranking, and answer
-          generation strategies in a fair, reproducible way.
-        </p>
-      </section>
+:root {
+  --bg:          #0d1117;
+  --surface:     #161b22;
+  --surface-2:   #1e2530;
+  --border:      #30363d;
+  --border-light:#21262d;
+  --text:        #e6edf3;
+  --text-muted:  #8b949e;
+  --text-subtle: #484f58;
+  --accent:      #2f81f7;
+  --accent-dim:  #1a4a8f;
+  --accent-glow: rgba(47,129,247,.18);
+  --green:       #3fb950;
+  --green-dim:   #1a4731;
+  --yellow:      #d29922;
+  --red:         #f85149;
+  --purple:      #a371f7;
+  --sidebar-w:   240px;
+  --topbar-h:    60px;
+  --radius:      10px;
+  --radius-lg:   14px;
+  --shadow:      0 4px 24px rgba(0,0,0,.4);
+  --font:        'Inter', system-ui, -apple-system, sans-serif;
+  --transition:  0.18s ease;
+}
 
-      <section id="overview" class="grid"></section>
+html { height: 100%; }
 
-      <div class="layout">
-        <section class="card">
-          <h2>Project status</h2>
-          <ul id="focus-areas"></ul>
+body {
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.6;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  display: flex;
+  overflow-x: hidden;
+}
 
-          <div class="section-block">
-            <h3>Datasets</h3>
-            <div id="datasets-panel"></div>
-          </div>
+/* ── Sidebar ───────────────────────────────────────────────── */
+.sidebar {
+  position: fixed;
+  top: 0; left: 0;
+  width: var(--sidebar-w);
+  height: 100vh;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  z-index: 100;
+}
 
-          <div class="section-block">
-            <h3>Benchmarks</h3>
-            <div id="benchmarks-panel"></div>
-          </div>
+.sidebar-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 20px 20px 18px;
+  border-bottom: 1px solid var(--border-light);
+}
 
-          <div class="section-block">
-            <h3>Experiments</h3>
-            <div id="experiment-table"></div>
-          </div>
+.logo-icon { font-size: 22px; }
 
-          <div class="section-block">
-            <h3>Experiment comparison</h3>
-            <div id="comparison-panel"></div>
-          </div>
-        </section>
+.logo-text {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.3px;
+}
 
-        <section class="card">
-          <h2>Create experiment</h2>
-          <form id="experiment-form">
-            <label>
-              Experiment name
-              <input name="name" placeholder="Hybrid rerank benchmark" required />
-            </label>
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 10px;
+  flex: 1;
+}
 
-            <label>
-              Dataset ID
-              <input name="dataset_id" value="dataset-demo" required />
-            </label>
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  text-decoration: none;
+  font-weight: 500;
+  transition: background var(--transition), color var(--transition);
+  cursor: pointer;
+}
 
-            <label>
-              Benchmark ID (optional)
-              <input name="benchmark_id" value="benchmark-demo" />
-            </label>
+.nav-item:hover { background: var(--surface-2); color: var(--text); }
 
-            <label>
-              Chunking strategy
-              <select name="chunking_strategy">
-                <option value="fixed-size">Fixed-size</option>
-                <option value="sentence-aware">Sentence-aware</option>
-                <option value="recursive">Recursive</option>
-              </select>
-            </label>
+.nav-item.active {
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-weight: 600;
+}
 
-            <label>
-              Chunk size
-              <input name="chunk_size" type="number" value="500" min="100" max="2000" />
-            </label>
+.nav-icon { font-size: 16px; width: 20px; text-align: center; }
 
-            <label>
-              Overlap
-              <input name="overlap" type="number" value="50" min="0" max="500" />
-            </label>
+.sidebar-footer {
+  padding: 16px;
+  border-top: 1px solid var(--border-light);
+}
 
-            <label>
-              Retrieval method
-              <select name="retrieval_method">
-                <option value="dense">Dense</option>
-                <option value="bm25">BM25</option>
-                <option value="hybrid" selected>Hybrid</option>
-              </select>
-            </label>
+.version-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-subtle);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 10px;
+}
 
-            <label>
-              Top-k
-              <input name="top_k" type="number" value="3" min="1" max="10" />
-            </label>
+/* ── Main content area ─────────────────────────────────────── */
+.main-content {
+  margin-left: var(--sidebar-w);
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
 
-            <label>
-              Embedding model
-              <input name="embedding_model" value="sentence-transformers/all-MiniLM-L6-v2" />
-            </label>
+/* ── Topbar ────────────────────────────────────────────────── */
+.topbar {
+  position: sticky;
+  top: 0;
+  height: var(--topbar-h);
+  background: rgba(13,17,23,.8);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 28px;
+  z-index: 50;
+}
 
-            <label>
-              Generation model
-              <input name="generation_model" value="gpt-4o-mini" />
-            </label>
+.page-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+}
 
-            <label>
-              <input name="reranking" type="checkbox" checked /> Enable reranking
-            </label>
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
 
-            <label>
-              <input name="query_rewrite" type="checkbox" /> Query rewriting
-            </label>
+.status-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 6px var(--green);
+  animation: pulse 2s infinite;
+}
 
-            <label>
-              Notes
-              <textarea name="notes" placeholder="Example: compare hybrid retrieval against dense baseline with reranking enabled."></textarea>
-            </label>
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .5; }
+}
 
-            <button type="submit">Save experiment</button>
-            <div id="status-message" class="empty"></div>
-          </form>
-        </section>
-      </div>
-    </div>
+/* ── Tab content ───────────────────────────────────────────── */
+.tab-content {
+  display: none;
+  padding: 28px;
+  flex: 1;
+  animation: fadeIn .2s ease;
+}
 
-    <script src="/static/app.js"></script>
-  </body>
-</html>
+.tab-content.active { display: block; }
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Stats grid ────────────────────────────────────────────── */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.stat-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.stat-card:hover {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-glow), var(--shadow);
+}
+
+.stat-icon { font-size: 28px; }
+
+.stat-value {
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--text);
+  line-height: 1;
+}
+
+.stat-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: 4px;
+}
+
+/* ── Two-column layout ─────────────────────────────────────── */
+.two-col {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 20px;
+}
+
+/* ── Card ──────────────────────────────────────────────────── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.card-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-light);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.card-header h2 {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* ── Toolbar ───────────────────────────────────────────────── */
+.toolbar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+/* ── Buttons ───────────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  font: 600 13px var(--font);
+  cursor: pointer;
+  transition: all var(--transition);
+  text-decoration: none;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.btn-primary:hover {
+  background: #1a6fdf;
+  border-color: #1a6fdf;
+  box-shadow: 0 0 12px var(--accent-glow);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-muted);
+  border-color: var(--border);
+}
+
+.btn-ghost:hover { background: var(--surface-2); color: var(--text); }
+
+.btn-danger {
+  background: transparent;
+  color: var(--red);
+  border-color: transparent;
+}
+
+.btn-danger:hover { background: rgba(248,81,73,.12); }
+
+.btn-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: background var(--transition), color var(--transition);
+}
+
+.btn-close:hover { background: var(--surface-2); color: var(--text); }
+
+/* ── Empty state ───────────────────────────────────────────── */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  color: var(--text-muted);
+  gap: 8px;
+  text-align: center;
+}
+
+.empty-icon { font-size: 36px; opacity: .6; }
+
+/* ── Table ─────────────────────────────────────────────────── */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.data-table th {
+  text-align: left;
+  padding: 10px 20px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-subtle);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.data-table td {
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border-light);
+  color: var(--text-muted);
+  vertical-align: middle;
+}
+
+.data-table tr:last-child td { border-bottom: none; }
+
+.data-table tr:hover td { background: var(--surface-2); color: var(--text); }
+
+.data-table td.name-cell {
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* ── Pill / badge ──────────────────────────────────────────── */
+.pill {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+
+.pill-green  { background: var(--green-dim);             color: var(--green); }
+.pill-blue   { background: var(--accent-dim);            color: var(--accent); }
+.pill-yellow { background: rgba(210,153,34,.15);         color: var(--yellow); }
+.pill-purple { background: rgba(163,113,247,.15);        color: var(--purple); }
+.pill-gray   { background: var(--surface-2);             color: var(--text-muted); }
+
+/* ── Tip list ──────────────────────────────────────────────── */
+.tip-list {
+  list-style: none;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.tip-list li {
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  border-left: 3px solid var(--accent);
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.tip-list li strong { color: var(--text); }
+
+/* ── Drawer (right slide-in) ───────────────────────────────── */
+.drawer {
+  position: fixed;
+  top: 0; right: 0;
+  width: 540px;
+  height: 100vh;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  box-shadow: -8px 0 40px rgba(0,0,0,.5);
+  z-index: 200;
+  overflow-y: auto;
+  transform: translateX(100%);
+  transition: transform .28s cubic-bezier(.4,0,.2,1);
+}
+
+.drawer:not(.hidden) { transform: translateX(0); }
+
+.drawer.hidden { transform: translateX(100%); }
+
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.55);
+  backdrop-filter: blur(2px);
+  z-index: 190;
+}
+
+.drawer-backdrop.hidden { display: none; }
+
+.drawer-inner { padding: 28px; }
+
+.drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.drawer-header h2 {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+/* ── Modal (centered) ──────────────────────────────────────── */
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.6);
+  backdrop-filter: blur(4px);
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal.hidden { display: none; }
+
+.modal-box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  width: 100%;
+  max-width: 480px;
+  padding: 28px;
+  animation: modalIn .2s ease;
+}
+
+@keyframes modalIn {
+  from { transform: scale(.94); opacity: 0; }
+  to   { transform: scale(1);   opacity: 1; }
+}
+
+/* ── Form ──────────────────────────────────────────────────── */
+.form-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.form-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-subtle);
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-light);
+  margin-top: 4px;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.form-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.required { color: var(--red); }
+.optional { color: var(--text-subtle); font-weight: 400; }
+
+.form-input {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font: 14px var(--font);
+  padding: 9px 12px;
+  transition: border-color var(--transition), box-shadow var(--transition);
+  width: 100%;
+}
+
+.form-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+textarea.form-input { resize: vertical; min-height: 80px; }
+
+select.form-input { cursor: pointer; }
+
+/* ── Toggle switch ─────────────────────────────────────────── */
+.toggle-label {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 10px;
+}
+
+.toggle-wrap { position: relative; flex-shrink: 0; }
+
+.toggle-input {
+  position: absolute;
+  opacity: 0;
+  width: 0; height: 0;
+}
+
+.toggle-track {
+  display: block;
+  width: 38px; height: 22px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition);
+  position: relative;
+}
+
+.toggle-track::after {
+  content: '';
+  position: absolute;
+  top: 3px; left: 3px;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: transform var(--transition), background var(--transition);
+}
+
+.toggle-input:checked + .toggle-track {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+}
+
+.toggle-input:checked + .toggle-track::after {
+  transform: translateX(16px);
+  background: var(--accent);
+}
+
+/* ── Form actions ──────────────────────────────────────────── */
+.form-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+/* ── Inline status message ─────────────────────────────────── */
+.form-status {
+  font-size: 13px;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  display: none;
+}
+
+.form-status.success {
+  display: block;
+  background: var(--green-dim);
+  color: var(--green);
+  border: 1px solid rgba(63,185,80,.3);
+}
+
+.form-status.error {
+  display: block;
+  background: rgba(248,81,73,.1);
+  color: var(--red);
+  border: 1px solid rgba(248,81,73,.3);
+}
+
+/* ── Scrollbar ─────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-subtle); }
+
+/* ── Responsive ────────────────────────────────────────────── */
+@media (max-width: 1100px) {
+  .stats-grid { grid-template-columns: repeat(2, 1fr); }
+  .two-col    { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 768px) {
+  :root { --sidebar-w: 0px; }
+  .sidebar { display: none; }
+  .main-content { margin-left: 0; }
+  .drawer { width: 100%; }
+}
