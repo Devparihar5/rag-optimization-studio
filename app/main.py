@@ -1,164 +1,689 @@
-from __future__ import annotations
+const state = {
+  overview: null,
+  datasets: [],
+  benchmarks: [],
+  experiments: [],
+  comparison: null,
+};
 
-from datetime import datetime, timezone
-from typing import Any
-from uuid import uuid4
+const els = {
+  overview: document.getElementById('overview'),
+  focusAreas: document.getElementById('focus-areas'),
+  datasetsPanel: document.getElementById('datasets-panel'),
+  benchmarksPanel: document.getElementById('benchmarks-panel'),
+  experimentTable: document.getElementById('experiment-table'),
+  comparisonPanel: document.getElementById('comparison-panel'),
+  experimentForm: document.getElementById('experiment-form'),
+  status: document.getElementById('status-message'),
+};
 
-from pydantic import BaseModel, Field
+async function fetchJson(url, options = {}) {
+  const response = await fetch(url, {
+    headers: { 'Content-Type': 'application/json' },
+    ...options,
+  });
+  if (!response.ok) {
+    throw new Error(`Request failed: ${response.status}`);
+  }
+  return response.json();
+}
+
+function renderOverview(data) {
+  if (!data) return;
+
+  const stats = data.stats || {};
+  const cards = [
+    { label: 'Datasets', value: stats.datasets ?? 0 },
+    { label: 'Benchmarks', value: stats.benchmarks ?? 0 },
+    { label: 'Experiments', value: stats.experiments ?? 0 },
+    { label: 'Running', value: stats.active_experiments ?? 0 },
+  ];
+
+  els.overview.innerHTML = cards
+    .map(
+      (card) => `
+        <div class="card">
+          <div class="badge">${card.label}</div>
+          <div class="metric">${card.value}</div>
+          <div>Tracked across the project</div>
+        </div>
+      `,
+    )
+    .join('');
+
+  els.focusAreas.innerHTML = (data.focus_areas || [])
+    .map((item) => `<li>${item}</li>`)
+    .join('');
+}
+
+function renderDatasets() {
+  if (!state.datasets.length) {
+    els.datasetsPanel.innerHTML = '<div class="empty">No datasets created yet.</div>';
+    return;
+  }
+
+  els.datasetsPanel.innerHTML = state.datasets
+    .map(
+      (dataset) => `
+        <div class="mini-card">
+          <strong>${dataset.name}</strong>
+          <div>${dataset.description || 'No description provided.'}</div>
+          <small>${dataset.source_type} • ${dataset.document_count} docs</small>
+        </div>
+      `,
+    )
+    .join('');
+}
+
+function renderBenchmarks() {
+  if (!state.benchmarks.length) {
+    els.benchmarksPanel.innerHTML = '<div class="empty">No benchmarks created yet.</div>';
+    return;
+  }
+
+  els.benchmarksPanel.innerHTML = state.benchmarks
+    .map(
+      (benchmark) => `
+        <div class="mini-card">
+          <strong>${benchmark.name}</strong>
+          <div>Dataset: ${benchmark.dataset_id}</div>
+          <small>${benchmark.question_count} questions</small>
+        </div>
+      `,
+    )
+    .join('');
+}
+
+function renderComparison() {
+  if (!state.comparison || !state.comparison.experiment_ids.length) {
+    els.comparisonPanel.innerHTML = '<div class="empty">Select experiments to compare.</div>';
+    return;
+  }
+
+  const summary = state.comparison.summary || {};
+  const rows = state.comparison.experiment_ids.map((id) => {
+    const result = summary[id] || {};
+    return `
+      <div class="compare-box">
+        <strong>${id}</strong>
+        <div class="result-grid">
+          <div class="metric-chip">Recall: ${Number(result.recall_at_k || 0).toFixed(2)}</div>
+          <div class="metric-chip">Precision: ${Number(result.precision_at_k || 0).toFixed(2)}</div>
+          <div class="metric-chip">MRR: ${Number(result.mrr || 0).toFixed(2)}</div>
+          <div class="metric-chip">nDCG: ${Number(result.ndcg_at_k || 0).toFixed(2)}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  els.comparisonPanel.innerHTML = `
+    <div>
+      <div><strong>Best by Recall:</strong> ${state.comparison.best_by_recall || 'n/a'}</div>
+      <div><strong>Best by nDCG:</strong> ${state.comparison.best_by_quality || 'n/a'}</div>
+      ${rows}
+    </div>
+  `;
+}
+
+function renderExperiments() {
+  if (!state.experiments.length) {
+    els.experimentTable.innerHTML = '<div class="empty">No experiments yet.</div>';
+    return;
+  }
+
+  els.experimentTable.innerHTML = `
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Dataset</th>
+          <th>Retrieval</th>
+          <th>Chunking</th>
+          <th>Top-k</th>
+          <th>Status</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${state.experiments
+          .map(
+            (exp) => `
+              <tr>
+                <td>${exp.name}</td>
+                <td>${exp.dataset_id}</td>
+                <td>${exp.config.retrieval_method}</td>
+                <td>${exp.config.chunking_strategy}</td>
+                <td>${exp.config.top_k}</td>
+                <td><span class="status-pill">${exp.status}</span></td>
+                <td class="row-actions">
+                  <button class="secondary" type="button" data-run-id="${exp.id}">Run</button>
+                  <label class="check-row">
+                    <input type="checkbox" value="${exp.id}" class="compare-toggle" />
+                    Compare
+                  </label>
+                </td>
+              </tr>
+            `,
+          )
+          .join('')}
+      </tbody>
+    </table>
+  `;
+
+  els.experimentTable.querySelectorAll('[data-run-id]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const experimentId = button.getAttribute('data-run-id');
+      els.status.textContent = 'Running experiment...';
+      try {
+        await fetchJson(`/api/experiments/${experimentId}/run`, { method: 'POST' });
+        els.status.textContent = 'Experiment completed.';
+        await loadExperiments();
+      } catch (error) {
+        els.status.textContent = 'Could not run experiment.';
+        console.error(error);
+      }
+    });
+  });
+
+  els.experimentTable.querySelectorAll('.compare-toggle').forEach((checkbox) => {
+    checkbox.addEventListener('change', async () => {
+      const selected = [...document.querySelectorAll('.compare-toggle:checked')].map((el) => el.value);
+      if (!selected.length) {
+        state.comparison = null;
+        renderComparison();
+        return;
+      }
+      try {
+        const response = await fetchJson('/api/comparisons', {
+          method: 'POST',
+          body: JSON.stringify({ experiment_ids: selected }),
+        });
+        state.comparison = response.comparison;
+        renderComparison();
+      } catch (error) {
+        console.error(error);
+      }
+    });
+  });
+}
+
+async function loadOverview() {
+  const data = await fetchJson('/api/overview');
+  state.overview = data;
+  renderOverview(data);
+}
+
+async function loadDatasets() {
+  const response = await fetchJson('/api/datasets');
+  state.datasets = response.datasets || [];
+  renderDatasets();
+}
+
+async function loadBenchmarks() {
+  const response = await fetchJson('/api/benchmarks');
+  state.benchmarks = response.benchmarks || [];
+  renderBenchmarks();
+}
+
+async function loadExperiments() {
+  const response = await fetchJson('/api/experiments');
+  state.experiments = response.experiments || [];
+  renderExperiments();
+  renderComparison();
+}
+
+els.experimentForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const formData = new FormData(els.experimentForm);
+  const payload = {
+    name: formData.get('name'),
+    dataset_id: formData.get('dataset_id'),
+    benchmark_id: formData.get('benchmark_id') || null,
+    config: {
+      chunking_strategy: formData.get('chunking_strategy'),
+      chunk_size: Number(formData.get('chunk_size')),
+      overlap: Number(formData.get('overlap')),
+      retrieval_method: formData.get('retrieval_method'),
+      top_k: Number(formData.get('top_k')),
+      reranking: formData.get('reranking') === 'on',
+      embedding_model: formData.get('embedding_model'),
+      generation_model: formData.get('generation_model'),
+      query_rewrite: formData.get('query_rewrite') === 'on',
+      notes: formData.get('notes') || '',
+    },
+  };
+
+  els.status.textContent = 'Creating experiment...';
+
+  try {
+    await fetchJson('/api/experiments', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    els.status.textContent = 'Experiment created successfully.';
+    els.experimentForm.reset();
+    await loadOverview();
+    await loadExperiments();
+  } catch (error) {
+    els.status.textContent = 'Failed to create experiment.';
+    console.error(error);
+  }
+});
+
+async function init() {
+  try {
+    await loadOverview();
+    await loadDatasets();
+    await loadBenchmarks();
+    await loadExperiments();
+  } catch (error) {
+    console.error(error);
+    els.status.textContent = 'Could not load app data.';
+  }
+}
+
+init();
 
 
-class DatasetCreateRequest(BaseModel):
-    name: str = Field(min_length=3, max_length=200)
-    description: str = Field(default="")
-    source_type: str = Field(default="pdf")
 
 
-class DatasetRecord(BaseModel):
-    id: str
-    name: str
-    description: str
-    source_type: str
-    created_at: str
-    document_count: int = 0
 
 
-class BenchmarkQuestion(BaseModel):
-    question: str
-    answer: str | None = None
-    relevant_passages: list[str] = Field(default_factory=list)
 
 
-class BenchmarkCreateRequest(BaseModel):
-    name: str = Field(min_length=3, max_length=200)
-    dataset_id: str
-    questions: list[BenchmarkQuestion] = Field(default_factory=list)
 
 
-class BenchmarkRecord(BaseModel):
-    id: str
-    name: str
-    dataset_id: str
-    question_count: int
-    created_at: str
 
 
-class ExperimentConfig(BaseModel):
-    chunking_strategy: str = Field(default="fixed-size")
-    chunk_size: int = Field(default=500, ge=100, le=2000)
-    overlap: int = Field(default=50, ge=0, le=500)
-    retrieval_method: str = Field(default="hybrid_rrf")
-    top_k: int = Field(default=5, ge=1, le=50)
-    reranking: bool = Field(default=True)
-    embedding_model: str = Field(default="sentence-transformers/all-MiniLM-L6-v2")
-    generation_model: str = Field(default="gpt-4o-mini")
-    query_rewrite: bool = Field(default=False)
-    notes: str | None = None
 
 
-class ExperimentCreateRequest(BaseModel):
-    name: str = Field(min_length=3, max_length=200)
-    dataset_id: str
-    benchmark_id: str | None = None
-    config: ExperimentConfig = Field(default_factory=ExperimentConfig)
 
 
-class ExperimentRecord(BaseModel):
-    id: str
-    name: str
-    dataset_id: str
-    benchmark_id: str | None
-    config: ExperimentConfig
-    status: str
-    created_at: str
 
 
-class ExperimentService:
-    def __init__(self) -> None:
-        self._datasets: dict[str, DatasetRecord] = {}
-        self._benchmarks: dict[str, BenchmarkRecord] = {}
-        self._experiments: dict[str, ExperimentRecord] = {}
-        self._seed_demo_data()
 
-    def _seed_demo_data(self) -> None:
-        dataset_id = "dataset-demo"
-        self._datasets[dataset_id] = DatasetRecord(
-            id=dataset_id,
-            name="Technical Docs",
-            description="Internal documentation corpus for an enterprise knowledge base.",
-            source_type="pdf",
-            created_at=self._now_iso(),
-            document_count=18,
-        )
 
-        benchmark_id = "benchmark-demo"
-        self._benchmarks[benchmark_id] = BenchmarkRecord(
-            id=benchmark_id,
-            name="Support Questions",
-            dataset_id=dataset_id,
-            question_count=3,
-            created_at=self._now_iso(),
-        )
 
-    @staticmethod
-    def _now_iso() -> str:
-        return datetime.now(timezone.utc).isoformat()
 
-    def get_dashboard_summary(self) -> dict[str, Any]:
-        return {
-            "datasets": len(self._datasets),
-            "benchmarks": len(self._benchmarks),
-            "experiments": len(self._experiments),
-            "active_experiments": sum(1 for e in self._experiments.values() if e.status == "running"),
-        }
 
-    def list_datasets(self) -> list[dict[str, Any]]:
-        return [dataset.model_dump() for dataset in self._datasets.values()]
 
-    def create_dataset(self, payload: DatasetCreateRequest) -> dict[str, Any]:
-        dataset_id = f"dataset-{uuid4().hex[:8]}"
-        dataset = DatasetRecord(
-            id=dataset_id,
-            name=payload.name,
-            description=payload.description,
-            source_type=payload.source_type,
-            created_at=self._now_iso(),
-            document_count=0,
-        )
-        self._datasets[dataset_id] = dataset
-        return dataset.model_dump()
 
-    def list_benchmarks(self) -> list[dict[str, Any]]:
-        return [benchmark.model_dump() for benchmark in self._benchmarks.values()]
 
-    def create_benchmark(self, payload: BenchmarkCreateRequest) -> dict[str, Any]:
-        benchmark_id = f"benchmark-{uuid4().hex[:8]}"
-        benchmark = BenchmarkRecord(
-            id=benchmark_id,
-            name=payload.name,
-            dataset_id=payload.dataset_id,
-            question_count=len(payload.questions),
-            created_at=self._now_iso(),
-        )
-        self._benchmarks[benchmark_id] = benchmark
-        return benchmark.model_dump()
 
-    def list_experiments(self) -> list[dict[str, Any]]:
-        return [experiment.model_dump() for experiment in self._experiments.values()]
 
-    def create_experiment(self, payload: ExperimentCreateRequest) -> dict[str, Any]:
-        experiment_id = f"exp-{uuid4().hex[:8]}"
-        experiment = ExperimentRecord(
-            id=experiment_id,
-            name=payload.name,
-            dataset_id=payload.dataset_id,
-            benchmark_id=payload.benchmark_id,
-            config=payload.config,
-            status="created",
-            created_at=self._now_iso(),
-        )
-        self._experiments[experiment_id] = experiment
-        return experiment.model_dump()
 
-    def get_experiment(self, experiment_id: str) -> dict[str, Any] | None:
-        experiment = self._experiments.get(experiment_id)
-        return None if experiment is None else experiment.model_dump()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

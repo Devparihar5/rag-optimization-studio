@@ -11,7 +11,6 @@ from pathlib import Path
 
 from src.ragstudio.experiments.models import (
     BenchmarkCreateRequest,
-    ComparisonRequest,
     DatasetCreateRequest,
     ExperimentCreateRequest,
 )
@@ -20,8 +19,8 @@ from src.ragstudio.experiments.service import ExperimentService
 BASE_DIR = Path(__file__).resolve().parent
 app = FastAPI(
     title="RAG Optimization Studio",
-    version="0.3.0",
-    description="Single-server experimentation platform for benchmarking RAG pipelines.",
+    version="0.4.0",
+    description="Single-server RAG benchmarking platform.",
 )
 
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
@@ -44,7 +43,7 @@ async def health():
         "status": "ok",
         "service": "rag-optimization-studio",
         "single_server_mode": True,
-        "version": "0.3.0",
+        "version": "0.4.0",
     }
 
 
@@ -115,10 +114,10 @@ async def get_experiment(experiment_id: str):
 
 @app.post("/api/experiments/{experiment_id}/run")
 async def run_experiment(experiment_id: str):
-    experiment = service.run_experiment(experiment_id)
-    if experiment is None:
+    result = service.run_experiment(experiment_id)
+    if result is None:
         return {"detail": "Experiment not found"}
-    return {"experiment": experiment}
+    return {"experiment": result}
 
 
 @app.get("/api/experiments/{experiment_id}/results")
@@ -130,9 +129,9 @@ async def get_results(experiment_id: str):
 
 
 @app.post("/api/comparisons")
-async def compare_experiments(payload: ComparisonRequest):
-    comparison = service.compare_experiments(payload.experiment_ids)
-    return {"comparison": comparison}
+async def compare_experiments(payload: dict):
+    experiment_ids = payload.get("experiment_ids", [])
+    return {"comparison": service.compare_experiments(experiment_ids)}
 
 
 if __name__ == "__main__":

@@ -1,256 +1,134 @@
-from __future__ import annotations
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RAG Optimization Studio</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <div class="topbar">
+        <div class="badge">Single-server MVP</div>
+      </div>
 
-from datetime import datetime, timezone
-from typing import Any
-from uuid import uuid4
+      <section class="hero">
+        <h1>RAG Optimization Studio</h1>
+        <p>
+          A benchmarking platform for comparing chunking, retrieval, reranking, and answer
+          generation strategies in a fair, reproducible way.
+        </p>
+      </section>
 
-from .models import (
-    BenchmarkCreateRequest,
-    BenchmarkQuestion,
-    BenchmarkRecord,
-    ComparisonResult,
-    DatasetCreateRequest,
-    DatasetRecord,
-    ExperimentConfig,
-    ExperimentCreateRequest,
-    ExperimentRecord,
-    ResultRow,
-)
+      <section id="overview" class="grid"></section>
 
+      <div class="layout">
+        <section class="card">
+          <h2>Project status</h2>
+          <ul id="focus-areas"></ul>
 
-class ExperimentService:
-    def __init__(self) -> None:
-        self._datasets: dict[str, DatasetRecord] = {}
-        self._benchmarks: dict[str, BenchmarkRecord] = {}
-        self._experiments: dict[str, ExperimentRecord] = {}
-        self._seed_demo_data()
+          <div class="section-block">
+            <h3>Datasets</h3>
+            <div id="datasets-panel"></div>
+          </div>
 
-    def _seed_demo_data(self) -> None:
-        dataset_id = "dataset-demo"
-        self._datasets[dataset_id] = DatasetRecord(
-            id=dataset_id,
-            name="Technical Docs",
-            description="Internal documentation corpus for an enterprise knowledge base.",
-            source_type="pdf",
-            created_at=self._now_iso(),
-            document_count=18,
-        )
+          <div class="section-block">
+            <h3>Benchmarks</h3>
+            <div id="benchmarks-panel"></div>
+          </div>
 
-        benchmark_id = "benchmark-demo"
-        self._benchmarks[benchmark_id] = BenchmarkRecord(
-            id=benchmark_id,
-            name="Support Questions",
-            dataset_id=dataset_id,
-            question_count=3,
-            created_at=self._now_iso(),
-        )
+          <div class="section-block">
+            <h3>Experiments</h3>
+            <div id="experiment-table"></div>
+          </div>
 
-        base = ExperimentConfig(
-            chunking_strategy="fixed-size",
-            chunk_size=500,
-            overlap=50,
-            retrieval_method="hybrid_rrf",
-            top_k=5,
-            reranking=True,
-            embedding_model="sentence-transformers/all-MiniLM-L6-v2",
-            generation_model="gpt-4o-mini",
-            query_rewrite=False,
-            notes="Baseline hybrid run",
-        )
+          <div class="section-block">
+            <h3>Experiment comparison</h3>
+            <div id="comparison-panel"></div>
+          </div>
+        </section>
 
-        demo_id = "exp-demo"
-        self._experiments[demo_id] = ExperimentRecord(
-            id=demo_id,
-            name="Hybrid baseline",
-            dataset_id=dataset_id,
-            benchmark_id=benchmark_id,
-            config=base,
-            status="completed",
-            created_at=self._now_iso(),
-            results=self._build_demo_rows(),
-            summary={
-                "recall_at_5": 0.82,
-                "precision_at_5": 0.71,
-                "mrr": 0.76,
-                "latency_ms": 448,
-                "token_cost": 0.016,
-                "answer_quality": 0.79,
-            },
-        )
+        <section class="card">
+          <h2>Create experiment</h2>
+          <form id="experiment-form">
+            <label>
+              Experiment name
+              <input name="name" placeholder="Hybrid rerank benchmark" required />
+            </label>
 
-    @staticmethod
-    def _now_iso() -> str:
-        return datetime.now(timezone.utc).isoformat()
+            <label>
+              Dataset ID
+              <input name="dataset_id" value="dataset-demo" required />
+            </label>
 
-    @staticmethod
-    def _build_demo_rows() -> list[ResultRow]:
-        return [
-            ResultRow(
-                question="How do we handle failed retrieval fallback?",
-                recall_at_5=0.9,
-                precision_at_5=0.8,
-                mrr=0.9,
-                latency_ms=430,
-                token_cost=0.012,
-                answer_quality=0.86,
-            ),
-            ResultRow(
-                question="What is the recommended chunking strategy for technical docs?",
-                recall_at_5=0.8,
-                precision_at_5=0.7,
-                mrr=0.75,
-                latency_ms=460,
-                token_cost=0.018,
-                answer_quality=0.8,
-            ),
-            ResultRow(
-                question="Which retrieval method is best for long documents?",
-                recall_at_5=0.76,
-                precision_at_5=0.66,
-                mrr=0.64,
-                latency_ms=455,
-                token_cost=0.018,
-                answer_quality=0.72,
-            ),
-        ]
+            <label>
+              Benchmark ID (optional)
+              <input name="benchmark_id" value="benchmark-demo" />
+            </label>
 
-    def get_dashboard_summary(self) -> dict[str, Any]:
-        return {
-            "datasets": len(self._datasets),
-            "benchmarks": len(self._benchmarks),
-            "experiments": len(self._experiments),
-            "active_experiments": sum(1 for e in self._experiments.values() if e.status == "running"),
-        }
+            <label>
+              Chunking strategy
+              <select name="chunking_strategy">
+                <option value="fixed-size">Fixed-size</option>
+                <option value="sentence-aware">Sentence-aware</option>
+                <option value="recursive">Recursive</option>
+              </select>
+            </label>
 
-    def list_datasets(self) -> list[dict[str, Any]]:
-        return [dataset.model_dump() for dataset in self._datasets.values()]
+            <label>
+              Chunk size
+              <input name="chunk_size" type="number" value="500" min="100" max="2000" />
+            </label>
 
-    def create_dataset(self, payload: DatasetCreateRequest) -> dict[str, Any]:
-        dataset_id = f"dataset-{uuid4().hex[:8]}"
-        dataset = DatasetRecord(
-            id=dataset_id,
-            name=payload.name,
-            description=payload.description,
-            source_type=payload.source_type,
-            created_at=self._now_iso(),
-            document_count=0,
-        )
-        self._datasets[dataset_id] = dataset
-        return dataset.model_dump()
+            <label>
+              Overlap
+              <input name="overlap" type="number" value="50" min="0" max="500" />
+            </label>
 
-    def list_benchmarks(self) -> list[dict[str, Any]]:
-        return [benchmark.model_dump() for benchmark in self._benchmarks.values()]
+            <label>
+              Retrieval method
+              <select name="retrieval_method">
+                <option value="dense">Dense</option>
+                <option value="bm25">BM25</option>
+                <option value="hybrid" selected>Hybrid</option>
+              </select>
+            </label>
 
-    def create_benchmark(self, payload: BenchmarkCreateRequest) -> dict[str, Any]:
-        benchmark_id = f"benchmark-{uuid4().hex[:8]}"
-        benchmark = BenchmarkRecord(
-            id=benchmark_id,
-            name=payload.name,
-            dataset_id=payload.dataset_id,
-            question_count=len(payload.questions),
-            created_at=self._now_iso(),
-        )
-        self._benchmarks[benchmark_id] = benchmark
-        return benchmark.model_dump()
+            <label>
+              Top-k
+              <input name="top_k" type="number" value="3" min="1" max="10" />
+            </label>
 
-    def list_experiments(self) -> list[dict[str, Any]]:
-        return [experiment.model_dump() for experiment in self._experiments.values()]
+            <label>
+              Embedding model
+              <input name="embedding_model" value="sentence-transformers/all-MiniLM-L6-v2" />
+            </label>
 
-    def create_experiment(self, payload: ExperimentCreateRequest) -> dict[str, Any]:
-        experiment_id = f"exp-{uuid4().hex[:8]}"
-        experiment = ExperimentRecord(
-            id=experiment_id,
-            name=payload.name,
-            dataset_id=payload.dataset_id,
-            benchmark_id=payload.benchmark_id,
-            config=payload.config,
-            status="created",
-            created_at=self._now_iso(),
-            results=[],
-            summary={},
-        )
-        self._experiments[experiment_id] = experiment
-        return experiment.model_dump()
+            <label>
+              Generation model
+              <input name="generation_model" value="gpt-4o-mini" />
+            </label>
 
-    def run_experiment(self, experiment_id: str) -> dict[str, Any] | None:
-        experiment = self._experiments.get(experiment_id)
-        if experiment is None:
-            return None
+            <label>
+              <input name="reranking" type="checkbox" checked /> Enable reranking
+            </label>
 
-        experiment.status = "running"
-        rows = [
-            ResultRow(
-                question="What is the recommended retrieval strategy for this corpus?",
-                recall_at_5=0.88,
-                precision_at_5=0.75,
-                mrr=0.82,
-                latency_ms=440,
-                token_cost=0.015,
-                answer_quality=0.84,
-            ),
-            ResultRow(
-                question="How should result ranking be compared across experiments?",
-                recall_at_5=0.81,
-                precision_at_5=0.7,
-                mrr=0.71,
-                latency_ms=468,
-                token_cost=0.017,
-                answer_quality=0.8,
-            ),
-            ResultRow(
-                question="Which chunking strategy has the best quality-to-cost tradeoff?",
-                recall_at_5=0.79,
-                precision_at_5=0.68,
-                mrr=0.69,
-                latency_ms=445,
-                token_cost=0.014,
-                answer_quality=0.77,
-            ),
-        ]
-        experiment.results = rows
-        experiment.summary = {
-            "recall_at_5": round(sum(r.recall_at_5 for r in rows) / len(rows), 3),
-            "precision_at_5": round(sum(r.precision_at_5 for r in rows) / len(rows), 3),
-            "mrr": round(sum(r.mrr for r in rows) / len(rows), 3),
-            "latency_ms": round(sum(r.latency_ms for r in rows) / len(rows), 1),
-            "token_cost": round(sum(r.token_cost for r in rows) / len(rows), 4),
-            "answer_quality": round(sum(r.answer_quality for r in rows) / len(rows), 3),
-        }
-        experiment.status = "completed"
-        return experiment.model_dump()
+            <label>
+              <input name="query_rewrite" type="checkbox" /> Query rewriting
+            </label>
 
-    def get_experiment(self, experiment_id: str) -> dict[str, Any] | None:
-        experiment = self._experiments.get(experiment_id)
-        return None if experiment is None else experiment.model_dump()
+            <label>
+              Notes
+              <textarea name="notes" placeholder="Example: compare hybrid retrieval against dense baseline with reranking enabled."></textarea>
+            </label>
 
-    def get_experiment_results(self, experiment_id: str) -> list[dict[str, Any]] | None:
-        experiment = self._experiments.get(experiment_id)
-        if experiment is None:
-            return None
-        return [row.model_dump() for row in experiment.results]
+            <button type="submit">Save experiment</button>
+            <div id="status-message" class="empty"></div>
+          </form>
+        </section>
+      </div>
+    </div>
 
-    def compare_experiments(self, experiment_ids: list[str]) -> dict[str, Any]:
-        valid_ids = [exp_id for exp_id in experiment_ids if exp_id in self._experiments]
-        summary: dict[str, dict[str, float]] = {}
-        for exp_id in valid_ids:
-            exp = self._experiments[exp_id]
-            summary[exp_id] = exp.summary or {
-                "recall_at_5": 0.0,
-                "precision_at_5": 0.0,
-                "mrr": 0.0,
-                "answer_quality": 0.0,
-            }
-
-        best_by_recall = max(valid_ids, key=lambda exp_id: summary[exp_id].get("recall_at_5", 0), default=None)
-        best_by_quality = max(valid_ids, key=lambda exp_id: summary[exp_id].get("answer_quality", 0), default=None)
-
-        return {
-            "experiment_ids": valid_ids,
-            "winners": {
-                "recall_at_5": best_by_recall,
-                "answer_quality": best_by_quality,
-            },
-            "best_by_recall": best_by_recall,
-            "best_by_quality": best_by_quality,
-            "summary": summary,
-        }
+    <script src="/static/app.js"></script>
+  </body>
+</html>

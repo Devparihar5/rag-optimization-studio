@@ -1,9 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Any
-from uuid import uuid4
-
 from pydantic import BaseModel, Field
 
 
@@ -46,7 +42,7 @@ class ExperimentConfig(BaseModel):
     chunking_strategy: str = Field(default="fixed-size")
     chunk_size: int = Field(default=500, ge=100, le=2000)
     overlap: int = Field(default=50, ge=0, le=500)
-    retrieval_method: str = Field(default="hybrid_rrf")
+    retrieval_method: str = Field(default="hybrid")
     top_k: int = Field(default=5, ge=1, le=50)
     reranking: bool = Field(default=True)
     embedding_model: str = Field(default="sentence-transformers/all-MiniLM-L6-v2")
@@ -62,22 +58,15 @@ class ExperimentCreateRequest(BaseModel):
     config: ExperimentConfig = Field(default_factory=ExperimentConfig)
 
 
-class ResultRow(BaseModel):
+class RetrievalRow(BaseModel):
     question: str
-    recall_at_5: float
-    precision_at_5: float
+    retrieved_chunks: list[str]
+    recall_at_k: float
+    precision_at_k: float
     mrr: float
+    ndcg_at_k: float
     latency_ms: int
     token_cost: float
-    answer_quality: float
-
-
-class ExperimentResult(BaseModel):
-    experiment_id: str
-    status: str
-    metrics: dict[str, float]
-    rows: list[ResultRow] = Field(default_factory=list)
-    generated_at: str
 
 
 class ExperimentRecord(BaseModel):
@@ -88,17 +77,5 @@ class ExperimentRecord(BaseModel):
     config: ExperimentConfig
     status: str
     created_at: str
-    results: list[ResultRow] = Field(default_factory=list)
+    results: list[RetrievalRow] = Field(default_factory=list)
     summary: dict[str, float] = Field(default_factory=dict)
-
-
-class ComparisonRequest(BaseModel):
-    experiment_ids: list[str] = Field(default_factory=list)
-
-
-class ComparisonResult(BaseModel):
-    experiment_ids: list[str]
-    winners: dict[str, str]
-    best_by_recall: str | None = None
-    best_by_quality: str | None = None
-    summary: dict[str, dict[str, float]] = Field(default_factory=dict)

@@ -1,7 +1,6 @@
 from .experiments.models import (
     BenchmarkCreateRequest,
     BenchmarkQuestion,
-    ComparisonRequest,
     DatasetCreateRequest,
     ExperimentConfig,
     ExperimentCreateRequest,
@@ -11,7 +10,6 @@ from .experiments.models import (
 __all__ = [
     "BenchmarkCreateRequest",
     "BenchmarkQuestion",
-    "ComparisonRequest",
     "DatasetCreateRequest",
     "ExperimentConfig",
     "ExperimentCreateRequest",

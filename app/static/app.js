@@ -1,553 +1,216 @@
-const state = {
-  overview: null,
-  datasets: [],
-  benchmarks: [],
-  experiments: [],
-  comparison: null,
-};
-
-const els = {
-  overview: document.getElementById('overview'),
-  focusAreas: document.getElementById('focus-areas'),
-  datasetsPanel: document.getElementById('datasets-panel'),
-  benchmarksPanel: document.getElementById('benchmarks-panel'),
-  experimentTable: document.getElementById('experiment-table'),
-  comparisonPanel: document.getElementById('comparison-panel'),
-  experimentForm: document.getElementById('experiment-form'),
-  status: document.getElementById('status-message'),
-};
-
-async function fetchJson(url, options = {}) {
-  const response = await fetch(url, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-  });
-  if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`);
-  }
-  return response.json();
+body {
+  margin: 0;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #f3f6fb;
+  color: #152238;
 }
 
-function renderOverview(data) {
-  if (!data) return;
+* { box-sizing: border-box; }
 
-  const stats = data.stats || {};
-  const cards = [
-    { label: 'Datasets', value: stats.datasets ?? 0 },
-    { label: 'Benchmarks', value: stats.benchmarks ?? 0 },
-    { label: 'Experiments', value: stats.experiments ?? 0 },
-    { label: 'Running', value: stats.active_experiments ?? 0 },
-  ];
-
-  els.overview.innerHTML = cards
-    .map(
-      (card) => `
-        <div class="card">
-          <div class="badge">${card.label}</div>
-          <div class="metric">${card.value}</div>
-          <div>Tracked across the project</div>
-        </div>
-      `,
-    )
-    .join('');
-
-  els.focusAreas.innerHTML = (data.focus_areas || [])
-    .map((item) => `<li>${item}</li>`)
-    .join('');
+.app-shell {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 32px 20px 80px;
 }
 
-function renderDatasets() {
-  if (!state.datasets.length) {
-    els.datasetsPanel.innerHTML = '<div class="empty">No datasets created yet.</div>';
-    return;
-  }
-
-  els.datasetsPanel.innerHTML = state.datasets
-    .map(
-      (dataset) => `
-        <div class="mini-card">
-          <strong>${dataset.name}</strong>
-          <div>${dataset.description || 'No description provided.'}</div>
-          <small>${dataset.source_type} • ${dataset.document_count} docs</small>
-        </div>
-      `,
-    )
-    .join('');
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
 }
 
-function renderBenchmarks() {
-  if (!state.benchmarks.length) {
-    els.benchmarksPanel.innerHTML = '<div class="empty">No benchmarks created yet.</div>';
-    return;
-  }
-
-  els.benchmarksPanel.innerHTML = state.benchmarks
-    .map(
-      (benchmark) => `
-        <div class="mini-card">
-          <strong>${benchmark.name}</strong>
-          <div>Dataset: ${benchmark.dataset_id}</div>
-          <small>${benchmark.question_count} questions</small>
-        </div>
-      `,
-    )
-    .join('');
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #dfeafc;
+  color: #1847a7;
+  font-weight: 700;
 }
 
-function renderComparison() {
-  if (!state.comparison || !state.comparison.experiment_ids.length) {
-    els.comparisonPanel.innerHTML = '<div class="empty">Select experiments to compare.</div>';
-    return;
-  }
-
-  const summary = state.comparison.summary || {};
-  const rows = state.comparison.experiment_ids
-    .map((id) => {
-      const result = summary[id] || {};
-      return `
-        <div class="compare-box">
-          <strong>${id}</strong>
-          <div class="result-grid">
-            <div class="metric-chip">Recall: ${Number(result.recall_at_5 || 0).toFixed(2)}</div>
-            <div class="metric-chip">Precision: ${Number(result.precision_at_5 || 0).toFixed(2)}</div>
-            <div class="metric-chip">MRR: ${Number(result.mrr || 0).toFixed(2)}</div>
-            <div class="metric-chip">Quality: ${Number(result.answer_quality || 0).toFixed(2)}</div>
-          </div>
-        </div>
-      `;
-    })
-    .join('');
-
-  els.comparisonPanel.innerHTML = `
-    <div>
-      <div><strong>Best by Recall:</strong> ${state.comparison.best_by_recall || 'n/a'}</div>
-      <div><strong>Best by Quality:</strong> ${state.comparison.best_by_quality || 'n/a'}</div>
-      ${rows}
-    </div>
-  `;
+h1, h2, h3 {
+  margin-top: 0;
 }
 
-function renderExperiments() {
-  if (!state.experiments.length) {
-    els.experimentTable.innerHTML = '<div class="empty">No experiments yet.</div>';
-    return;
-  }
-
-  els.experimentTable.innerHTML = `
-    <table class="table">
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Dataset</th>
-          <th>Retrieval</th>
-          <th>Chunking</th>
-          <th>Top-k</th>
-          <th>Status</th>
-          <th>Action</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${state.experiments
-          .map(
-            (exp) => `
-              <tr>
-                <td>${exp.name}</td>
-                <td>${exp.dataset_id}</td>
-                <td>${exp.config.retrieval_method}</td>
-                <td>${exp.config.chunking_strategy}</td>
-                <td>${exp.config.top_k}</td>
-                <td><span class="status-pill">${exp.status}</span></td>
-                <td class="row-actions">
-                  <button class="secondary" type="button" data-run-id="${exp.id}">Run</button>
-                  <label class="check-row">
-                    <input type="checkbox" value="${exp.id}" class="compare-toggle" />
-                    Compare
-                  </label>
-                </td>
-              </tr>
-            `,
-          )
-          .join('')}
-      </tbody>
-    </table>
-  `;
-
-  els.experimentTable.querySelectorAll('[data-run-id]').forEach((button) => {
-    button.addEventListener('click', async () => {
-      const experimentId = button.getAttribute('data-run-id');
-      els.status.textContent = 'Running experiment...';
-      try {
-        await fetchJson(`/api/experiments/${experimentId}/run`, { method: 'POST' });
-        els.status.textContent = 'Experiment completed.';
-        await loadExperiments();
-      } catch (error) {
-        els.status.textContent = 'Could not run experiment.';
-        console.error(error);
-      }
-    });
-  });
-
-  els.experimentTable.querySelectorAll('.compare-toggle').forEach((checkbox) => {
-    checkbox.addEventListener('change', async () => {
-      const selected = [...document.querySelectorAll('.compare-toggle:checked')].map((el) => el.value);
-      if (selected.length === 0) {
-        state.comparison = null;
-        renderComparison();
-        return;
-      }
-      try {
-        const response = await fetchJson('/api/comparisons', {
-          method: 'POST',
-          body: JSON.stringify({ experiment_ids: selected }),
-        });
-        state.comparison = response.comparison;
-        renderComparison();
-      } catch (error) {
-        console.error(error);
-      }
-    });
-  });
+.hero {
+  background: linear-gradient(135deg, #0f172a 0%, #1d4ed8 100%);
+  color: white;
+  border-radius: 20px;
+  padding: 28px;
+  box-shadow: 0 18px 40px rgba(29, 78, 216, 0.22);
 }
 
-async function loadOverview() {
-  const data = await fetchJson('/api/overview');
-  state.overview = data;
-  renderOverview(data);
+.hero p {
+  margin-bottom: 0;
+  max-width: 760px;
+  color: rgba(255, 255, 255, 0.8);
 }
 
-async function loadDatasets() {
-  const response = await fetchJson('/api/datasets');
-  state.datasets = response.datasets || [];
-  renderDatasets();
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 18px;
+  margin-top: 24px;
 }
 
-async function loadBenchmarks() {
-  const response = await fetchJson('/api/benchmarks');
-  state.benchmarks = response.benchmarks || [];
-  renderBenchmarks();
+.card {
+  background: white;
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
 }
 
-async function loadExperiments() {
-  const response = await fetchJson('/api/experiments');
-  state.experiments = response.experiments || [];
-  renderExperiments();
-  renderComparison();
+.mini-card {
+  background: #f8fbff;
+  border: 1px solid #e7edf8;
+  border-radius: 12px;
+  padding: 12px;
+  margin-bottom: 10px;
 }
 
-els.experimentForm.addEventListener('submit', async (event) => {
-  event.preventDefault();
-  const formData = new FormData(els.experimentForm);
-  const payload = {
-    name: formData.get('name'),
-    dataset_id: formData.get('dataset_id'),
-    benchmark_id: formData.get('benchmark_id') || null,
-    config: {
-      chunking_strategy: formData.get('chunking_strategy'),
-      chunk_size: Number(formData.get('chunk_size')),
-      overlap: Number(formData.get('overlap')),
-      retrieval_method: formData.get('retrieval_method'),
-      top_k: Number(formData.get('top_k')),
-      reranking: formData.get('reranking') === 'on',
-      embedding_model: formData.get('embedding_model'),
-      generation_model: formData.get('generation_model'),
-      query_rewrite: formData.get('query_rewrite') === 'on',
-      notes: formData.get('notes') || '',
-    },
-  };
+.metric {
+  font-size: 2rem;
+  font-weight: 800;
+  margin: 12px 0 8px;
+}
 
-  els.status.textContent = 'Creating experiment...';
+.layout {
+  display: grid;
+  grid-template-columns: 1.2fr 0.8fr;
+  gap: 24px;
+  margin-top: 28px;
+}
 
-  try {
-    await fetchJson('/api/experiments', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
-    els.status.textContent = 'Experiment created successfully.';
-    els.experimentForm.reset();
-    await loadOverview();
-    await loadExperiments();
-  } catch (error) {
-    els.status.textContent = 'Failed to create experiment.';
-    console.error(error);
-  }
-});
+.section-block {
+  margin-top: 20px;
+}
 
-async function init() {
-  try {
-    await loadOverview();
-    await loadDatasets();
-    await loadBenchmarks();
-    await loadExperiments();
-  } catch (error) {
-    console.error(error);
-    els.status.textContent = 'Could not load app data.';
+.result-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.metric-chip {
+  background: #ecf4ff;
+  border-radius: 10px;
+  padding: 10px;
+  font-size: 0.9rem;
+}
+
+.compare-box {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid #e6edf9;
+  border-radius: 10px;
+  background: #f9fbff;
+}
+
+form {
+  display: grid;
+  gap: 14px;
+}
+
+label {
+  display: grid;
+  gap: 6px;
+  font-weight: 600;
+  color: #1b2d4a;
+}
+
+input, select, textarea, button {
+  font: inherit;
+}
+
+input, select, textarea {
+  width: 100%;
+  border: 1px solid #d8e1f0;
+  border-radius: 10px;
+  background: #f8fbff;
+  padding: 10px 12px;
+  color: #152238;
+}
+
+textarea {
+  min-height: 90px;
+  resize: vertical;
+}
+
+button {
+  border: 0;
+  border-radius: 10px;
+  background: #1d4ed8;
+  color: white;
+  font-weight: 700;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+
+button.secondary {
+  background: #0f172a;
+}
+
+button:hover {
+  transform: translateY(-1px);
+  opacity: 0.96;
+}
+
+ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+li {
+  margin-bottom: 6px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 18px;
+}
+
+.table th, .table td {
+  text-align: left;
+  padding: 10px 8px;
+  border-bottom: 1px solid #edf2f9;
+}
+
+.empty {
+  color: #576b8c;
+}
+
+.status-pill {
+  display: inline-block;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: #e3f7ed;
+  color: #18794e;
+  font-weight: 700;
+  font-size: 0.8rem;
+}
+
+.row-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+@media (max-width: 820px) {
+  .layout {
+    grid-template-columns: 1fr;
   }
 }
-
-init();
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
