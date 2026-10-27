@@ -1,177 +1,141 @@
-body {
-  margin: 0;
-  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: #f3f6fb;
-  color: #152238;
-}
+from __future__ import annotations
 
-* { box-sizing: border-box; }
+from datetime import datetime, timezone
+from typing import Any
+from uuid import uuid4
 
-.app-shell {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 32px 20px 80px;
-}
+from fastapi import FastAPI, Request
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from pathlib import Path
 
-.topbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 24px;
-}
+from src.ragstudio.experiments.models import (
+    BenchmarkCreateRequest,
+    ComparisonRequest,
+    DatasetCreateRequest,
+    ExperimentCreateRequest,
+)
+from src.ragstudio.experiments.service import ExperimentService
 
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.8rem;
-  padding: 6px 10px;
-  border-radius: 999px;
-  background: #dfeafc;
-  color: #1847a7;
-  font-weight: 700;
-}
+BASE_DIR = Path(__file__).resolve().parent
+app = FastAPI(
+    title="RAG Optimization Studio",
+    version="0.3.0",
+    description="Single-server experimentation platform for benchmarking RAG pipelines.",
+)
 
-h1, h2, h3 {
-  margin-top: 0;
-}
+app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
+templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
-.hero {
-  background: linear-gradient(135deg, #0f172a 0%, #1d4ed8 100%);
-  color: white;
-  border-radius: 20px;
-  padding: 28px;
-  box-shadow: 0 18px 40px rgba(29, 78, 216, 0.22);
-}
+service = ExperimentService()
 
-.hero p {
-  margin-bottom: 0;
-  max-width: 760px;
-  color: rgba(255, 255, 255, 0.8);
-}
 
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 18px;
-  margin-top: 24px;
-}
+@app.get("/")
+async def dashboard(request: Request):
+    return templates.TemplateResponse(
+        "index.html",
+        {"request": request, "project_name": "RAG Optimization Studio"},
+    )
 
-.card {
-  background: white;
-  border-radius: 16px;
-  padding: 20px;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
-}
 
-.mini-card {
-  background: #f8fbff;
-  border: 1px solid #e7edf8;
-  border-radius: 12px;
-  padding: 12px;
-  margin-bottom: 10px;
-}
+@app.get("/api/health")
+async def health():
+    return {
+        "status": "ok",
+        "service": "rag-optimization-studio",
+        "single_server_mode": True,
+        "version": "0.3.0",
+    }
 
-.metric {
-  font-size: 2rem;
-  font-weight: 800;
-  margin: 12px 0 8px;
-}
 
-.layout {
-  display: grid;
-  grid-template-columns: 1.2fr 0.8fr;
-  gap: 24px;
-  margin-top: 28px;
-}
+@app.get("/api/overview")
+async def overview():
+    return {
+        "title": "RAG Optimization Studio",
+        "summary": "Experimentation and benchmarking platform for retrieval-augmented generation pipelines.",
+        "mvp_status": "in_progress",
+        "single_server": True,
+        "focus_areas": [
+            "dataset ingestion",
+            "benchmark design and relevance labels",
+            "chunking and indexing",
+            "dense + BM25 + hybrid retrieval",
+            "reranking and evaluation",
+            "result comparison and reproducibility",
+        ],
+        "key_metrics": [
+            "Recall@k",
+            "Precision@k",
+            "MRR",
+            "nDCG@k",
+            "Latency",
+            "Token cost",
+        ],
+        "stats": service.get_dashboard_summary(),
+    }
 
-.section-block {
-  margin-top: 20px;
-}
 
-form {
-  display: grid;
-  gap: 14px;
-}
+@app.get("/api/datasets")
+async def list_datasets():
+    return {"datasets": service.list_datasets()}
 
-label {
-  display: grid;
-  gap: 6px;
-  font-weight: 600;
-  color: #1b2d4a;
-}
 
-input, select, textarea, button {
-  font: inherit;
-}
+@app.post("/api/datasets")
+async def create_dataset(payload: DatasetCreateRequest):
+    return {"dataset": service.create_dataset(payload)}
 
-input, select, textarea {
-  width: 100%;
-  border: 1px solid #d8e1f0;
-  border-radius: 10px;
-  background: #f8fbff;
-  padding: 10px 12px;
-  color: #152238;
-}
 
-textarea {
-  min-height: 90px;
-  resize: vertical;
-}
+@app.get("/api/benchmarks")
+async def list_benchmarks():
+    return {"benchmarks": service.list_benchmarks()}
 
-button {
-  border: 0;
-  border-radius: 10px;
-  background: #1d4ed8;
-  color: white;
-  font-weight: 700;
-  padding: 12px 16px;
-  cursor: pointer;
-  transition: transform 0.15s ease, opacity 0.15s ease;
-}
 
-button:hover {
-  transform: translateY(-1px);
-  opacity: 0.96;
-}
+@app.post("/api/benchmarks")
+async def create_benchmark(payload: BenchmarkCreateRequest):
+    return {"benchmark": service.create_benchmark(payload)}
 
-ul {
-  margin: 0;
-  padding-left: 18px;
-}
 
-li {
-  margin-bottom: 6px;
-}
+@app.get("/api/experiments")
+async def list_experiments():
+    return {"experiments": service.list_experiments()}
 
-.table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 18px;
-}
 
-.table th, .table td {
-  text-align: left;
-  padding: 10px 8px;
-  border-bottom: 1px solid #edf2f9;
-}
+@app.post("/api/experiments")
+async def create_experiment(payload: ExperimentCreateRequest):
+    return {"experiment": service.create_experiment(payload)}
 
-.empty {
-  color: #576b8c;
-}
 
-.status-pill {
-  display: inline-block;
-  padding: 5px 10px;
-  border-radius: 999px;
-  background: #e3f7ed;
-  color: #18794e;
-  font-weight: 700;
-  font-size: 0.8rem;
-}
+@app.get("/api/experiments/{experiment_id}")
+async def get_experiment(experiment_id: str):
+    experiment = service.get_experiment(experiment_id)
+    if experiment is None:
+        return {"detail": "Experiment not found"}
+    return experiment
 
-@media (max-width: 820px) {
-  .layout {
-    grid-template-columns: 1fr;
-  }
-}
+
+@app.post("/api/experiments/{experiment_id}/run")
+async def run_experiment(experiment_id: str):
+    experiment = service.run_experiment(experiment_id)
+    if experiment is None:
+        return {"detail": "Experiment not found"}
+    return {"experiment": experiment}
+
+
+@app.get("/api/experiments/{experiment_id}/results")
+async def get_results(experiment_id: str):
+    result = service.get_experiment_results(experiment_id)
+    if result is None:
+        return {"detail": "Experiment not found"}
+    return {"results": result}
+
+
+@app.post("/api/comparisons")
+async def compare_experiments(payload: ComparisonRequest):
+    comparison = service.compare_experiments(payload.experiment_ids)
+    return {"comparison": comparison}
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)

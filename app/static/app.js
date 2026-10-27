@@ -1,129 +1,553 @@
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>RAG Optimization Studio</title>
-    <link rel="stylesheet" href="/static/styles.css" />
-  </head>
-  <body>
-    <div class="app-shell">
-      <div class="topbar">
-        <div class="badge">Single-server MVP</div>
-      </div>
+const state = {
+  overview: null,
+  datasets: [],
+  benchmarks: [],
+  experiments: [],
+  comparison: null,
+};
 
-      <section class="hero">
-        <h1>RAG Optimization Studio</h1>
-        <p>
-          A benchmarking platform for comparing chunking, retrieval, reranking, and answer
-          generation strategies in a fair, reproducible way.
-        </p>
-      </section>
+const els = {
+  overview: document.getElementById('overview'),
+  focusAreas: document.getElementById('focus-areas'),
+  datasetsPanel: document.getElementById('datasets-panel'),
+  benchmarksPanel: document.getElementById('benchmarks-panel'),
+  experimentTable: document.getElementById('experiment-table'),
+  comparisonPanel: document.getElementById('comparison-panel'),
+  experimentForm: document.getElementById('experiment-form'),
+  status: document.getElementById('status-message'),
+};
 
-      <section id="overview" class="grid"></section>
+async function fetchJson(url, options = {}) {
+  const response = await fetch(url, {
+    headers: { 'Content-Type': 'application/json' },
+    ...options,
+  });
+  if (!response.ok) {
+    throw new Error(`Request failed: ${response.status}`);
+  }
+  return response.json();
+}
 
-      <div class="layout">
-        <section class="card">
-          <h2>Project status</h2>
-          <ul id="focus-areas"></ul>
+function renderOverview(data) {
+  if (!data) return;
 
-          <div class="section-block">
-            <h3>Datasets</h3>
-            <div id="datasets-panel"></div>
+  const stats = data.stats || {};
+  const cards = [
+    { label: 'Datasets', value: stats.datasets ?? 0 },
+    { label: 'Benchmarks', value: stats.benchmarks ?? 0 },
+    { label: 'Experiments', value: stats.experiments ?? 0 },
+    { label: 'Running', value: stats.active_experiments ?? 0 },
+  ];
+
+  els.overview.innerHTML = cards
+    .map(
+      (card) => `
+        <div class="card">
+          <div class="badge">${card.label}</div>
+          <div class="metric">${card.value}</div>
+          <div>Tracked across the project</div>
+        </div>
+      `,
+    )
+    .join('');
+
+  els.focusAreas.innerHTML = (data.focus_areas || [])
+    .map((item) => `<li>${item}</li>`)
+    .join('');
+}
+
+function renderDatasets() {
+  if (!state.datasets.length) {
+    els.datasetsPanel.innerHTML = '<div class="empty">No datasets created yet.</div>';
+    return;
+  }
+
+  els.datasetsPanel.innerHTML = state.datasets
+    .map(
+      (dataset) => `
+        <div class="mini-card">
+          <strong>${dataset.name}</strong>
+          <div>${dataset.description || 'No description provided.'}</div>
+          <small>${dataset.source_type} • ${dataset.document_count} docs</small>
+        </div>
+      `,
+    )
+    .join('');
+}
+
+function renderBenchmarks() {
+  if (!state.benchmarks.length) {
+    els.benchmarksPanel.innerHTML = '<div class="empty">No benchmarks created yet.</div>';
+    return;
+  }
+
+  els.benchmarksPanel.innerHTML = state.benchmarks
+    .map(
+      (benchmark) => `
+        <div class="mini-card">
+          <strong>${benchmark.name}</strong>
+          <div>Dataset: ${benchmark.dataset_id}</div>
+          <small>${benchmark.question_count} questions</small>
+        </div>
+      `,
+    )
+    .join('');
+}
+
+function renderComparison() {
+  if (!state.comparison || !state.comparison.experiment_ids.length) {
+    els.comparisonPanel.innerHTML = '<div class="empty">Select experiments to compare.</div>';
+    return;
+  }
+
+  const summary = state.comparison.summary || {};
+  const rows = state.comparison.experiment_ids
+    .map((id) => {
+      const result = summary[id] || {};
+      return `
+        <div class="compare-box">
+          <strong>${id}</strong>
+          <div class="result-grid">
+            <div class="metric-chip">Recall: ${Number(result.recall_at_5 || 0).toFixed(2)}</div>
+            <div class="metric-chip">Precision: ${Number(result.precision_at_5 || 0).toFixed(2)}</div>
+            <div class="metric-chip">MRR: ${Number(result.mrr || 0).toFixed(2)}</div>
+            <div class="metric-chip">Quality: ${Number(result.answer_quality || 0).toFixed(2)}</div>
           </div>
+        </div>
+      `;
+    })
+    .join('');
 
-          <div class="section-block">
-            <h3>Benchmarks</h3>
-            <div id="benchmarks-panel"></div>
-          </div>
-
-          <div class="section-block">
-            <h3>Experiments</h3>
-            <div id="experiment-table"></div>
-          </div>
-        </section>
-
-        <section class="card">
-          <h2>Create experiment</h2>
-          <form id="experiment-form">
-            <label>
-              Experiment name
-              <input name="name" placeholder="Hybrid rerank benchmark" required />
-            </label>
-
-            <label>
-              Dataset ID
-              <input name="dataset_id" placeholder="dataset-demo" required />
-            </label>
-
-            <label>
-              Benchmark ID (optional)
-              <input name="benchmark_id" placeholder="benchmark-demo" />
-            </label>
-
-            <label>
-              Chunking strategy
-              <select name="chunking_strategy">
-                <option value="fixed-size">Fixed-size</option>
-                <option value="sentence-aware">Sentence-aware</option>
-                <option value="recursive">Recursive</option>
-              </select>
-            </label>
-
-            <label>
-              Chunk size
-              <input name="chunk_size" type="number" value="500" min="100" max="2000" />
-            </label>
-
-            <label>
-              Overlap
-              <input name="overlap" type="number" value="50" min="0" max="500" />
-            </label>
-
-            <label>
-              Retrieval method
-              <select name="retrieval_method">
-                <option value="dense">Dense</option>
-                <option value="bm25">BM25</option>
-                <option value="hybrid_rrf" selected>Hybrid RRF</option>
-              </select>
-            </label>
-
-            <label>
-              Top-k
-              <input name="top_k" type="number" value="5" min="1" max="50" />
-            </label>
-
-            <label>
-              Embedding model
-              <input name="embedding_model" value="sentence-transformers/all-MiniLM-L6-v2" />
-            </label>
-
-            <label>
-              Generation model
-              <input name="generation_model" value="gpt-4o-mini" />
-            </label>
-
-            <label>
-              <input name="reranking" type="checkbox" checked /> Enable reranking
-            </label>
-
-            <label>
-              <input name="query_rewrite" type="checkbox" /> Query rewriting
-            </label>
-
-            <label>
-              Notes
-              <textarea name="notes" placeholder="Example: compare hybrid retrieval against dense baseline with reranking enabled."></textarea>
-            </label>
-
-            <button type="submit">Save experiment</button>
-            <div id="status-message" class="empty"></div>
-          </form>
-        </section>
-      </div>
+  els.comparisonPanel.innerHTML = `
+    <div>
+      <div><strong>Best by Recall:</strong> ${state.comparison.best_by_recall || 'n/a'}</div>
+      <div><strong>Best by Quality:</strong> ${state.comparison.best_by_quality || 'n/a'}</div>
+      ${rows}
     </div>
+  `;
+}
 
-    <script src="/static/app.js"></script>
-  </body>
-</html>
+function renderExperiments() {
+  if (!state.experiments.length) {
+    els.experimentTable.innerHTML = '<div class="empty">No experiments yet.</div>';
+    return;
+  }
+
+  els.experimentTable.innerHTML = `
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Dataset</th>
+          <th>Retrieval</th>
+          <th>Chunking</th>
+          <th>Top-k</th>
+          <th>Status</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${state.experiments
+          .map(
+            (exp) => `
+              <tr>
+                <td>${exp.name}</td>
+                <td>${exp.dataset_id}</td>
+                <td>${exp.config.retrieval_method}</td>
+                <td>${exp.config.chunking_strategy}</td>
+                <td>${exp.config.top_k}</td>
+                <td><span class="status-pill">${exp.status}</span></td>
+                <td class="row-actions">
+                  <button class="secondary" type="button" data-run-id="${exp.id}">Run</button>
+                  <label class="check-row">
+                    <input type="checkbox" value="${exp.id}" class="compare-toggle" />
+                    Compare
+                  </label>
+                </td>
+              </tr>
+            `,
+          )
+          .join('')}
+      </tbody>
+    </table>
+  `;
+
+  els.experimentTable.querySelectorAll('[data-run-id]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const experimentId = button.getAttribute('data-run-id');
+      els.status.textContent = 'Running experiment...';
+      try {
+        await fetchJson(`/api/experiments/${experimentId}/run`, { method: 'POST' });
+        els.status.textContent = 'Experiment completed.';
+        await loadExperiments();
+      } catch (error) {
+        els.status.textContent = 'Could not run experiment.';
+        console.error(error);
+      }
+    });
+  });
+
+  els.experimentTable.querySelectorAll('.compare-toggle').forEach((checkbox) => {
+    checkbox.addEventListener('change', async () => {
+      const selected = [...document.querySelectorAll('.compare-toggle:checked')].map((el) => el.value);
+      if (selected.length === 0) {
+        state.comparison = null;
+        renderComparison();
+        return;
+      }
+      try {
+        const response = await fetchJson('/api/comparisons', {
+          method: 'POST',
+          body: JSON.stringify({ experiment_ids: selected }),
+        });
+        state.comparison = response.comparison;
+        renderComparison();
+      } catch (error) {
+        console.error(error);
+      }
+    });
+  });
+}
+
+async function loadOverview() {
+  const data = await fetchJson('/api/overview');
+  state.overview = data;
+  renderOverview(data);
+}
+
+async function loadDatasets() {
+  const response = await fetchJson('/api/datasets');
+  state.datasets = response.datasets || [];
+  renderDatasets();
+}
+
+async function loadBenchmarks() {
+  const response = await fetchJson('/api/benchmarks');
+  state.benchmarks = response.benchmarks || [];
+  renderBenchmarks();
+}
+
+async function loadExperiments() {
+  const response = await fetchJson('/api/experiments');
+  state.experiments = response.experiments || [];
+  renderExperiments();
+  renderComparison();
+}
+
+els.experimentForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const formData = new FormData(els.experimentForm);
+  const payload = {
+    name: formData.get('name'),
+    dataset_id: formData.get('dataset_id'),
+    benchmark_id: formData.get('benchmark_id') || null,
+    config: {
+      chunking_strategy: formData.get('chunking_strategy'),
+      chunk_size: Number(formData.get('chunk_size')),
+      overlap: Number(formData.get('overlap')),
+      retrieval_method: formData.get('retrieval_method'),
+      top_k: Number(formData.get('top_k')),
+      reranking: formData.get('reranking') === 'on',
+      embedding_model: formData.get('embedding_model'),
+      generation_model: formData.get('generation_model'),
+      query_rewrite: formData.get('query_rewrite') === 'on',
+      notes: formData.get('notes') || '',
+    },
+  };
+
+  els.status.textContent = 'Creating experiment...';
+
+  try {
+    await fetchJson('/api/experiments', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    els.status.textContent = 'Experiment created successfully.';
+    els.experimentForm.reset();
+    await loadOverview();
+    await loadExperiments();
+  } catch (error) {
+    els.status.textContent = 'Failed to create experiment.';
+    console.error(error);
+  }
+});
+
+async function init() {
+  try {
+    await loadOverview();
+    await loadDatasets();
+    await loadBenchmarks();
+    await loadExperiments();
+  } catch (error) {
+    console.error(error);
+    els.status.textContent = 'Could not load app data.';
+  }
+}
+
+init();
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

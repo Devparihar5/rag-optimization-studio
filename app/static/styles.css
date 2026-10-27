@@ -1,207 +1,256 @@
-const state = {
-  overview: null,
-  datasets: [],
-  benchmarks: [],
-  experiments: [],
-};
+from __future__ import annotations
 
-const els = {
-  overview: document.getElementById('overview'),
-  focusAreas: document.getElementById('focus-areas'),
-  datasetsPanel: document.getElementById('datasets-panel'),
-  benchmarksPanel: document.getElementById('benchmarks-panel'),
-  experimentTable: document.getElementById('experiment-table'),
-  experimentForm: document.getElementById('experiment-form'),
-  status: document.getElementById('status-message'),
-};
+from datetime import datetime, timezone
+from typing import Any
+from uuid import uuid4
 
-async function fetchJson(url, options = {}) {
-  const res = await fetch(url, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-  });
-  if (!res.ok) {
-    throw new Error(`Request failed: ${res.status}`);
-  }
-  return res.json();
-}
+from .models import (
+    BenchmarkCreateRequest,
+    BenchmarkQuestion,
+    BenchmarkRecord,
+    ComparisonResult,
+    DatasetCreateRequest,
+    DatasetRecord,
+    ExperimentConfig,
+    ExperimentCreateRequest,
+    ExperimentRecord,
+    ResultRow,
+)
 
-function renderOverview(data) {
-  if (!data) return;
 
-  const stats = data.stats || {};
-  const cards = [
-    { label: 'Datasets', value: stats.datasets ?? 0 },
-    { label: 'Benchmarks', value: stats.benchmarks ?? 0 },
-    { label: 'Experiments', value: stats.experiments ?? 0 },
-    { label: 'Running', value: stats.active_experiments ?? 0 },
-  ];
+class ExperimentService:
+    def __init__(self) -> None:
+        self._datasets: dict[str, DatasetRecord] = {}
+        self._benchmarks: dict[str, BenchmarkRecord] = {}
+        self._experiments: dict[str, ExperimentRecord] = {}
+        self._seed_demo_data()
 
-  els.overview.innerHTML = cards
-    .map(
-      (card) => `
-        <div class="card">
-          <div class="badge">${card.label}</div>
-          <div class="metric">${card.value}</div>
-          <div>Tracked across the project</div>
-        </div>
-      `,
-    )
-    .join('');
+    def _seed_demo_data(self) -> None:
+        dataset_id = "dataset-demo"
+        self._datasets[dataset_id] = DatasetRecord(
+            id=dataset_id,
+            name="Technical Docs",
+            description="Internal documentation corpus for an enterprise knowledge base.",
+            source_type="pdf",
+            created_at=self._now_iso(),
+            document_count=18,
+        )
 
-  els.focusAreas.innerHTML = (data.focus_areas || [])
-    .map((item) => `<li>${item}</li>`)
-    .join('');
-}
+        benchmark_id = "benchmark-demo"
+        self._benchmarks[benchmark_id] = BenchmarkRecord(
+            id=benchmark_id,
+            name="Support Questions",
+            dataset_id=dataset_id,
+            question_count=3,
+            created_at=self._now_iso(),
+        )
 
-function renderDatasets() {
-  if (!state.datasets.length) {
-    els.datasetsPanel.innerHTML = '<div class="empty">No datasets created yet.</div>';
-    return;
-  }
+        base = ExperimentConfig(
+            chunking_strategy="fixed-size",
+            chunk_size=500,
+            overlap=50,
+            retrieval_method="hybrid_rrf",
+            top_k=5,
+            reranking=True,
+            embedding_model="sentence-transformers/all-MiniLM-L6-v2",
+            generation_model="gpt-4o-mini",
+            query_rewrite=False,
+            notes="Baseline hybrid run",
+        )
 
-  els.datasetsPanel.innerHTML = state.datasets
-    .map(
-      (dataset) => `
-        <div class="mini-card">
-          <strong>${dataset.name}</strong>
-          <div>${dataset.description || 'No description provided.'}</div>
-          <small>${dataset.source_type} • ${dataset.document_count} docs</small>
-        </div>
-      `,
-    )
-    .join('');
-}
+        demo_id = "exp-demo"
+        self._experiments[demo_id] = ExperimentRecord(
+            id=demo_id,
+            name="Hybrid baseline",
+            dataset_id=dataset_id,
+            benchmark_id=benchmark_id,
+            config=base,
+            status="completed",
+            created_at=self._now_iso(),
+            results=self._build_demo_rows(),
+            summary={
+                "recall_at_5": 0.82,
+                "precision_at_5": 0.71,
+                "mrr": 0.76,
+                "latency_ms": 448,
+                "token_cost": 0.016,
+                "answer_quality": 0.79,
+            },
+        )
 
-function renderBenchmarks() {
-  if (!state.benchmarks.length) {
-    els.benchmarksPanel.innerHTML = '<div class="empty">No benchmarks created yet.</div>';
-    return;
-  }
+    @staticmethod
+    def _now_iso() -> str:
+        return datetime.now(timezone.utc).isoformat()
 
-  els.benchmarksPanel.innerHTML = state.benchmarks
-    .map(
-      (benchmark) => `
-        <div class="mini-card">
-          <strong>${benchmark.name}</strong>
-          <div>Dataset: ${benchmark.dataset_id}</div>
-          <small>${benchmark.question_count} questions</small>
-        </div>
-      `,
-    )
-    .join('');
-}
+    @staticmethod
+    def _build_demo_rows() -> list[ResultRow]:
+        return [
+            ResultRow(
+                question="How do we handle failed retrieval fallback?",
+                recall_at_5=0.9,
+                precision_at_5=0.8,
+                mrr=0.9,
+                latency_ms=430,
+                token_cost=0.012,
+                answer_quality=0.86,
+            ),
+            ResultRow(
+                question="What is the recommended chunking strategy for technical docs?",
+                recall_at_5=0.8,
+                precision_at_5=0.7,
+                mrr=0.75,
+                latency_ms=460,
+                token_cost=0.018,
+                answer_quality=0.8,
+            ),
+            ResultRow(
+                question="Which retrieval method is best for long documents?",
+                recall_at_5=0.76,
+                precision_at_5=0.66,
+                mrr=0.64,
+                latency_ms=455,
+                token_cost=0.018,
+                answer_quality=0.72,
+            ),
+        ]
 
-function renderExperiments() {
-  if (!state.experiments.length) {
-    els.experimentTable.innerHTML = '<div class="empty">No experiments yet.</div>';
-    return;
-  }
+    def get_dashboard_summary(self) -> dict[str, Any]:
+        return {
+            "datasets": len(self._datasets),
+            "benchmarks": len(self._benchmarks),
+            "experiments": len(self._experiments),
+            "active_experiments": sum(1 for e in self._experiments.values() if e.status == "running"),
+        }
 
-  els.experimentTable.innerHTML = `
-    <table class="table">
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Dataset</th>
-          <th>Retrieval</th>
-          <th>Chunking</th>
-          <th>Top-k</th>
-          <th>Status</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${state.experiments
-          .map(
-            (exp) => `
-              <tr>
-                <td>${exp.name}</td>
-                <td>${exp.dataset_id}</td>
-                <td>${exp.config.retrieval_method}</td>
-                <td>${exp.config.chunking_strategy}</td>
-                <td>${exp.config.top_k}</td>
-                <td><span class="status-pill">${exp.status}</span></td>
-              </tr>
-            `,
-          )
-          .join('')}
-      </tbody>
-    </table>
-  `;
-}
+    def list_datasets(self) -> list[dict[str, Any]]:
+        return [dataset.model_dump() for dataset in self._datasets.values()]
 
-async function loadOverview() {
-  const data = await fetchJson('/api/overview');
-  state.overview = data;
-  renderOverview(data);
-}
+    def create_dataset(self, payload: DatasetCreateRequest) -> dict[str, Any]:
+        dataset_id = f"dataset-{uuid4().hex[:8]}"
+        dataset = DatasetRecord(
+            id=dataset_id,
+            name=payload.name,
+            description=payload.description,
+            source_type=payload.source_type,
+            created_at=self._now_iso(),
+            document_count=0,
+        )
+        self._datasets[dataset_id] = dataset
+        return dataset.model_dump()
 
-async function loadDatasets() {
-  const response = await fetchJson('/api/datasets');
-  state.datasets = response.datasets || [];
-  renderDatasets();
-}
+    def list_benchmarks(self) -> list[dict[str, Any]]:
+        return [benchmark.model_dump() for benchmark in self._benchmarks.values()]
 
-async function loadBenchmarks() {
-  const response = await fetchJson('/api/benchmarks');
-  state.benchmarks = response.benchmarks || [];
-  renderBenchmarks();
-}
+    def create_benchmark(self, payload: BenchmarkCreateRequest) -> dict[str, Any]:
+        benchmark_id = f"benchmark-{uuid4().hex[:8]}"
+        benchmark = BenchmarkRecord(
+            id=benchmark_id,
+            name=payload.name,
+            dataset_id=payload.dataset_id,
+            question_count=len(payload.questions),
+            created_at=self._now_iso(),
+        )
+        self._benchmarks[benchmark_id] = benchmark
+        return benchmark.model_dump()
 
-async function loadExperiments() {
-  const response = await fetchJson('/api/experiments');
-  state.experiments = response.experiments || [];
-  renderExperiments();
-}
+    def list_experiments(self) -> list[dict[str, Any]]:
+        return [experiment.model_dump() for experiment in self._experiments.values()]
 
-els.experimentForm.addEventListener('submit', async (event) => {
-  event.preventDefault();
-  const formData = new FormData(els.experimentForm);
-  const payload = {
-    name: formData.get('name'),
-    dataset_id: formData.get('dataset_id'),
-    benchmark_id: formData.get('benchmark_id') || null,
-    config: {
-      chunking_strategy: formData.get('chunking_strategy'),
-      chunk_size: Number(formData.get('chunk_size')),
-      overlap: Number(formData.get('overlap')),
-      retrieval_method: formData.get('retrieval_method'),
-      top_k: Number(formData.get('top_k')),
-      reranking: formData.get('reranking') === 'on',
-      embedding_model: formData.get('embedding_model'),
-      generation_model: formData.get('generation_model'),
-      query_rewrite: formData.get('query_rewrite') === 'on',
-      notes: formData.get('notes') || '',
-    },
-  };
+    def create_experiment(self, payload: ExperimentCreateRequest) -> dict[str, Any]:
+        experiment_id = f"exp-{uuid4().hex[:8]}"
+        experiment = ExperimentRecord(
+            id=experiment_id,
+            name=payload.name,
+            dataset_id=payload.dataset_id,
+            benchmark_id=payload.benchmark_id,
+            config=payload.config,
+            status="created",
+            created_at=self._now_iso(),
+            results=[],
+            summary={},
+        )
+        self._experiments[experiment_id] = experiment
+        return experiment.model_dump()
 
-  els.status.textContent = 'Creating experiment...';
+    def run_experiment(self, experiment_id: str) -> dict[str, Any] | None:
+        experiment = self._experiments.get(experiment_id)
+        if experiment is None:
+            return None
 
-  try {
-    await fetchJson('/api/experiments', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
-    els.status.textContent = 'Experiment created successfully.';
-    els.experimentForm.reset();
-    await loadOverview();
-    await loadExperiments();
-  } catch (error) {
-    els.status.textContent = 'Failed to create experiment.';
-    console.error(error);
-  }
-});
+        experiment.status = "running"
+        rows = [
+            ResultRow(
+                question="What is the recommended retrieval strategy for this corpus?",
+                recall_at_5=0.88,
+                precision_at_5=0.75,
+                mrr=0.82,
+                latency_ms=440,
+                token_cost=0.015,
+                answer_quality=0.84,
+            ),
+            ResultRow(
+                question="How should result ranking be compared across experiments?",
+                recall_at_5=0.81,
+                precision_at_5=0.7,
+                mrr=0.71,
+                latency_ms=468,
+                token_cost=0.017,
+                answer_quality=0.8,
+            ),
+            ResultRow(
+                question="Which chunking strategy has the best quality-to-cost tradeoff?",
+                recall_at_5=0.79,
+                precision_at_5=0.68,
+                mrr=0.69,
+                latency_ms=445,
+                token_cost=0.014,
+                answer_quality=0.77,
+            ),
+        ]
+        experiment.results = rows
+        experiment.summary = {
+            "recall_at_5": round(sum(r.recall_at_5 for r in rows) / len(rows), 3),
+            "precision_at_5": round(sum(r.precision_at_5 for r in rows) / len(rows), 3),
+            "mrr": round(sum(r.mrr for r in rows) / len(rows), 3),
+            "latency_ms": round(sum(r.latency_ms for r in rows) / len(rows), 1),
+            "token_cost": round(sum(r.token_cost for r in rows) / len(rows), 4),
+            "answer_quality": round(sum(r.answer_quality for r in rows) / len(rows), 3),
+        }
+        experiment.status = "completed"
+        return experiment.model_dump()
 
-async function init() {
-  try {
-    await loadOverview();
-    await loadDatasets();
-    await loadBenchmarks();
-    await loadExperiments();
-  } catch (error) {
-    console.error(error);
-    els.status.textContent = 'Could not load app data.';
-  }
-}
+    def get_experiment(self, experiment_id: str) -> dict[str, Any] | None:
+        experiment = self._experiments.get(experiment_id)
+        return None if experiment is None else experiment.model_dump()
 
-init();
+    def get_experiment_results(self, experiment_id: str) -> list[dict[str, Any]] | None:
+        experiment = self._experiments.get(experiment_id)
+        if experiment is None:
+            return None
+        return [row.model_dump() for row in experiment.results]
+
+    def compare_experiments(self, experiment_ids: list[str]) -> dict[str, Any]:
+        valid_ids = [exp_id for exp_id in experiment_ids if exp_id in self._experiments]
+        summary: dict[str, dict[str, float]] = {}
+        for exp_id in valid_ids:
+            exp = self._experiments[exp_id]
+            summary[exp_id] = exp.summary or {
+                "recall_at_5": 0.0,
+                "precision_at_5": 0.0,
+                "mrr": 0.0,
+                "answer_quality": 0.0,
+            }
+
+        best_by_recall = max(valid_ids, key=lambda exp_id: summary[exp_id].get("recall_at_5", 0), default=None)
+        best_by_quality = max(valid_ids, key=lambda exp_id: summary[exp_id].get("answer_quality", 0), default=None)
+
+        return {
+            "experiment_ids": valid_ids,
+            "winners": {
+                "recall_at_5": best_by_recall,
+                "answer_quality": best_by_quality,
+            },
+            "best_by_recall": best_by_recall,
+            "best_by_quality": best_by_quality,
+            "summary": summary,
+        }
