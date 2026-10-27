@@ -1,0 +1,139 @@
+const state = {
+  overview: null,
+  experiments: [],
+};
+
+const els = {
+  overview: document.getElementById('overview'),
+  experimentForm: document.getElementById('experiment-form'),
+  experimentTable: document.getElementById('experiment-table'),
+  status: document.getElementById('status-message'),
+};
+
+async function fetchJson(url, options = {}) {
+  const res = await fetch(url, {
+    headers: { 'Content-Type': 'application/json' },
+    ...options,
+  });
+  if (!res.ok) {
+    throw new Error(`Request failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+function renderOverview(data) {
+  if (!data) return;
+
+  const list = document.getElementById('focus-areas');
+  list.innerHTML = data.focus_areas
+    .map((item) => `<li>${item}</li>`)
+    .join('');
+
+  const cards = document.getElementById('metric-cards');
+  cards.innerHTML = data.key_metrics
+    .map((metric) => `
+      <div class="card">
+        <div class="badge">Metric</div>
+        <div class="metric">${metric}</div>
+        <div>Tracked across experiments</div>
+      </div>
+    `)
+    .join('');
+}
+
+function renderExperiments(experiments = []) {
+  if (!experiments.length) {
+    els.experimentTable.innerHTML = `
+      <div class="card empty">
+        No experiments have been created yet.
+      </div>
+    `;
+    return;
+  }
+
+  els.experimentTable.innerHTML = `
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Dataset</th>
+          <th>Retrieval</th>
+          <th>Chunking</th>
+          <th>Top-K</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${experiments.map((exp) => `
+          <tr>
+            <td>${exp.name}</td>
+            <td>${exp.dataset_name}</td>
+            <td>${exp.config.retrieval_method}</td>
+            <td>${exp.config.chunking_strategy}</td>
+            <td>${exp.config.top_k}</td>
+            <td><span class="status-pill">${exp.status}</span></td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+async function loadOverview() {
+  state.overview = await fetchJson('/api/overview');
+  renderOverview(state.overview);
+}
+
+async function loadExperiments() {
+  const response = await fetchJson('/api/experiments');
+  state.experiments = response.experiments || [];
+  renderExperiments(state.experiments);
+}
+
+els.experimentForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const formData = new FormData(els.experimentForm);
+  const payload = {
+    name: formData.get('name'),
+    dataset_name: formData.get('dataset_name'),
+    config: {
+      chunking_strategy: formData.get('chunking_strategy'),
+      chunk_size: Number(formData.get('chunk_size')),
+      overlap: Number(formData.get('overlap')),
+      retrieval_method: formData.get('retrieval_method'),
+      top_k: Number(formData.get('top_k')),
+      reranking: formData.get('reranking') === 'on',
+      embedding_model: formData.get('embedding_model'),
+      generation_model: formData.get('generation_model'),
+      query_rewrite: formData.get('query_rewrite') === 'on',
+      notes: formData.get('notes') || '',
+    },
+  };
+
+  els.status.textContent = 'Creating experiment...';
+
+  try {
+    await fetchJson('/api/experiments', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    els.status.textContent = 'Experiment created successfully.';
+    els.experimentForm.reset();
+    await loadExperiments();
+  } catch (error) {
+    els.status.textContent = 'Failed to create experiment.';
+    console.error(error);
+  }
+});
+
+async function init() {
+  try {
+    await loadOverview();
+    await loadExperiments();
+  } catch (error) {
+    console.error(error);
+    els.status.textContent = 'Could not load app data.';
+  }
+}
+
+init();
