@@ -155,8 +155,10 @@ class ExperimentConfig(BaseModel):
     retrieval_method: str = Field(default="hybrid_rrf")
     top_k: int = Field(default=5, ge=1, le=50)
     reranking: bool = Field(default=True)
-    embedding_model: str = Field(default="sentence-transformers/all-MiniLM-L6-v2")
-    generation_model: str = Field(default="gpt-4o-mini")
+    # These are configured-model IDs selected in the UI; do not silently fall back
+    # to a provider model when a dropdown is empty or disabled.
+    embedding_model: str = Field(min_length=1, max_length=300)
+    generation_model: str = Field(min_length=1, max_length=300)
     query_rewrite: bool = Field(default=False)
     notes: str | None = None
 
