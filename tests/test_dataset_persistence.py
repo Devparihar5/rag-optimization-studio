@@ -37,8 +37,20 @@ def test_dataset_upload_persistence_and_cascade(tmp_path: Path, monkeypatch) -> 
     assert benchmark.status_code == 201
     assert client.get(f"/api/benchmarks/{benchmark.json()['id']}").json()["question_count"] == 1
 
+    monkeypatch.setattr(main, "get_model_runtime_config", lambda model_id: {
+        "id": model_id, "provider": "openai", "model_id": "mock-generation", "api_key": "test", "base_url": None
+    })
+    monkeypatch.setattr(main, "get_embedding_model_runtime_config", lambda model_id: {
+        "id": model_id, "provider": "openai", "model_id": "mock-embedding", "api_key": "test", "base_url": None
+    })
+    config = {
+        "chunking_strategy": "fixed-size", "chunk_size": 500, "overlap": 50,
+        "retrieval_method": "bm25", "top_k": 5, "reranking": False,
+        "query_rewrite": False, "embedding_model": "embedding-config-id",
+        "generation_model": "generation-config-id",
+    }
     experiment = client.post("/api/experiments", json={
-        "name": "baseline", "dataset_id": dataset_id, "benchmark_id": benchmark.json()["id"]
+        "name": "baseline", "dataset_id": dataset_id, "benchmark_id": benchmark.json()["id"], "config": config
     })
     assert experiment.status_code == 201
     experiment_id = experiment.json()["id"]
@@ -69,10 +81,13 @@ def test_rejects_benchmark_from_another_dataset(tmp_path: Path, monkeypatch) -> 
         for name in ("first corpus", "second corpus")
     ]
     benchmark = client.post("/api/benchmarks", json={
-        "name": "first benchmark", "dataset_id": dataset_ids[0], "questions": []
+        "name": "first benchmark", "dataset_id": dataset_ids[0], "questions": [{"question": "What is stored?", "answer": "Data"}]
     }).json()
+    monkeypatch.setattr(main, "get_model_runtime_config", lambda model_id: {"id": model_id})
+    monkeypatch.setattr(main, "get_embedding_model_runtime_config", lambda model_id: {"id": model_id})
+    config = {"chunking_strategy": "fixed-size", "chunk_size": 500, "overlap": 50, "retrieval_method": "bm25", "top_k": 5, "reranking": False, "query_rewrite": False, "embedding_model": "embedding-id", "generation_model": "generation-id"}
     response = client.post("/api/experiments", json={
-        "name": "invalid pairing", "dataset_id": dataset_ids[1], "benchmark_id": benchmark["id"]
+        "name": "invalid pairing", "dataset_id": dataset_ids[1], "benchmark_id": benchmark["id"], "config": config
     })
     assert response.status_code == 409
 
@@ -103,10 +118,13 @@ def test_deleting_benchmark_unlinks_experiment(tmp_path: Path, monkeypatch) -> N
     client = TestClient(main.app)
     dataset_id = client.post("/api/datasets", json={"name": "sample corpus"}).json()["id"]
     benchmark = client.post("/api/benchmarks", json={
-        "name": "sample benchmark", "dataset_id": dataset_id, "questions": []
+        "name": "sample benchmark", "dataset_id": dataset_id, "questions": [{"question": "What is in the sample?", "answer": "A sample"}]
     }).json()
+    monkeypatch.setattr(main, "get_model_runtime_config", lambda model_id: {"id": model_id})
+    monkeypatch.setattr(main, "get_embedding_model_runtime_config", lambda model_id: {"id": model_id})
+    config = {"chunking_strategy": "fixed-size", "chunk_size": 500, "overlap": 50, "retrieval_method": "bm25", "top_k": 5, "reranking": False, "query_rewrite": False, "embedding_model": "embedding-id", "generation_model": "generation-id"}
     experiment = client.post("/api/experiments", json={
-        "name": "sample experiment", "dataset_id": dataset_id, "benchmark_id": benchmark["id"]
+        "name": "sample experiment", "dataset_id": dataset_id, "benchmark_id": benchmark["id"], "config": config
     }).json()
 
     response = client.delete(f"/api/benchmarks/{benchmark['id']}")
