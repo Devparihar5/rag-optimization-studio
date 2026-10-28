@@ -543,6 +543,7 @@ benchmarkForm.addEventListener('submit', async e => {
       questions,
     };
     if (!payload.name || !payload.dataset_id) throw new Error('Name and dataset are required.');
+    if (!editingBenchmarkId && !questions.length) throw new Error('Add at least one question.');
     if (editingBenchmarkId) {
       await api('PUT', '/benchmarks/' + editingBenchmarkId, { name: payload.name, questions });
       showStatus('benchmark-status', '✓ Benchmark updated!', 'success');
