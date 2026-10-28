@@ -219,7 +219,8 @@
       }
 
       if (experimentSubmit) {
-        experimentSubmit.disabled = !experimentModel?.value || !embeddingModel?.value;
+        const datasetSelect = experimentForm?.querySelector('[name="dataset_id"]');
+        experimentSubmit.disabled = !datasetSelect?.value || !experimentModel?.value || !embeddingModel?.value;
       }
     } catch (error) {
       generationList.innerHTML = '<div class="empty-state"><p class="error-text">Could not load models: ' + escapeHtml(error.message) + '</p></div>';
@@ -231,8 +232,9 @@
 
   document.getElementById('refresh-models').addEventListener('click', loadConfiguredModels);
   document.querySelector('[data-tab="models"]')?.addEventListener('click', loadConfiguredModels);
-  [experimentModel, embeddingModel].forEach(select => select?.addEventListener('change', () => {
-    if (experimentSubmit) experimentSubmit.disabled = !experimentModel?.value || !embeddingModel?.value;
+  const datasetSelect = experimentForm?.querySelector('[name="dataset_id"]');
+  [datasetSelect, experimentModel, embeddingModel].forEach(select => select?.addEventListener('change', () => {
+    if (experimentSubmit) experimentSubmit.disabled = !datasetSelect?.value || !experimentModel?.value || !embeddingModel?.value;
   }));
   experimentForm?.addEventListener('reset', () => {
     if (experimentSubmit) experimentSubmit.disabled = true;
