@@ -577,7 +577,9 @@ def _embed_texts(runtime: dict[str, Any], texts: list[str]) -> list[list[float]]
             batch.clear()
 
         for text_value in texts:
-            estimated = max(1, len(text_value.split()))
+            # Budget three tokens per whitespace-delimited word to leave headroom
+            # for punctuation and subword tokenization without a provider tokenizer.
+            estimated = max(1, len(text_value.split()) * 3)
             if estimated > 8000:
                 raise RuntimeError("A chunk is too large for the embedding provider; reduce chunk size.")
             if batch and (len(batch) >= 128 or estimated_tokens + estimated > 200000):
