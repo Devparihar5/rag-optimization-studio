@@ -699,17 +699,26 @@ def _bm25_scores(query: str, texts: list[str]) -> list[float]:
     return scores
 
 
-def _rank_chunks(query: str, chunks: list[dict[str, Any]], method: str, embedding_runtime: dict[str, Any] | None, top_k: int) -> list[dict[str, Any]]:
+def _rank_chunks(query: str, chunks: list[dict[str, Any]], method: str, embedding_runtime: dict[str, Any] | None, top_k: int, chunk_vectors: list[list[float]] | None = None) -> list[dict[str, Any]]:
     texts = [item["text"] for item in chunks]
     bm25 = _bm25_scores(query, texts) if method in {"bm25", "hybrid_rrf"} else []
     dense: list[float] = []
     if method in {"dense", "hybrid_rrf"}:
         if embedding_runtime is None:
             raise RuntimeError("A configured embedding model is required for dense retrieval.")
-        vectors = _embed_texts(embedding_runtime, texts + [query])
-        if len(vectors) != len(texts) + 1 or not vectors[-1]:
+        if chunk_vectors is None:
+            vectors = _embed_texts(embedding_runtime, texts + [query])
+            if len(vectors) != len(texts) + 1:
+                raise RuntimeError("The embedding provider returned incomplete vectors.")
+            chunk_vectors, query_vector = vectors[:-1], vectors[-1]
+        else:
+            query_vectors = _embed_texts(embedding_runtime, [query])
+            if len(query_vectors) != 1:
+                raise RuntimeError("The embedding provider returned an incomplete query vector.")
+            query_vector = query_vectors[0]
+        if len(chunk_vectors) != len(texts) or not query_vector:
             raise RuntimeError("The embedding provider returned incomplete vectors.")
-        dense = [_cosine(vector, vectors[-1]) for vector in vectors[:-1]]
+        dense = [_cosine(vector, query_vector) for vector in chunk_vectors]
     if method == "dense":
         scores = dense
     elif method == "bm25":
@@ -792,13 +801,18 @@ def _run_experiment_sync(experiment_id: str) -> dict[str, Any]:
         get_embedding_model_runtime_config(config["embedding_model"])
         if config["retrieval_method"] in {"dense", "hybrid_rrf"} else None
     )
+    chunk_vectors = None
+    if embedding_runtime is not None:
+        chunk_vectors = _embed_texts(embedding_runtime, [item["text"] for item in chunks])
+        if len(chunk_vectors) != len(chunks) or any(not vector for vector in chunk_vectors):
+            raise RuntimeError("The embedding provider returned incomplete document vectors.")
     question_results = []
     for question_item in questions:
         question = str(question_item.get("question", "")).strip()
         if not question:
             continue
         started = time.perf_counter()
-        retrieved = _rank_chunks(question, chunks, config["retrieval_method"], embedding_runtime, config["top_k"])
+        retrieved = _rank_chunks(question, chunks, config["retrieval_method"], embedding_runtime, config["top_k"], chunk_vectors)
         answer, usage = _generate_answer(generation_runtime, question, retrieved)
         latency_ms = round((time.perf_counter() - started) * 1000, 2)
         references = question_item.get("relevant_passages") or []
