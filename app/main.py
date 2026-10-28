@@ -641,24 +641,7 @@ def _tokens(text_value: str) -> list[str]:
     return re.findall(r"[a-z0-9]+", text_value.lower())
 
 
-def _chunk_document(text_value: str, strategy: str, chunk_size: int, overlap: int) -> list[str]:
-    words = text_value.split()
-    if not words:
-        return []
-    if strategy == "fixed-size":
-        chunks = []
-        step = chunk_size - overlap
-        for start in range(0, len(words), step):
-            part = " ".join(words[start:start + chunk_size])
-            if part:
-                chunks.append(part)
-        return chunks
-    if strategy == "sentence-aware":
-        units = re.split(r"(?<=[.!?])\s+", text_value.strip())
-    elif strategy == "recursive":
-        units = [piece.strip() for piece in re.split(r"\n\s*\n|(?<=[.!?])\s+", text_value.strip()) if piece.strip()]
-    else:
-        raise ValueError("Unsupported chunking strategy.")
+def _pack_text_units(units: list[str], chunk_size: int, overlap: int) -> list[str]:
     chunks: list[str] = []
     current: list[str] = []
     for unit in units:
@@ -675,9 +658,29 @@ def _chunk_document(text_value: str, strategy: str, chunk_size: int, overlap: in
         current.extend(unit_words)
     if current:
         chunks.append(" ".join(current))
-    # Avoid empty/duplicate tail chunks caused by very short source documents.
-    return list(dict.fromkeys(part for part in chunks if part.strip()))
+    return [part for part in chunks if part.strip()]
 
+
+def _chunk_document(text_value: str, strategy: str, chunk_size: int, overlap: int) -> list[str]:
+    if not text_value.strip():
+        return []
+    if strategy == "fixed-size":
+        words = text_value.split()
+        step = chunk_size - overlap
+        return [" ".join(words[start:start + chunk_size]) for start in range(0, len(words), step)]
+    if strategy == "sentence-aware":
+        units = [part.strip() for part in re.split(r"(?<=[.!?])\s+", text_value.strip()) if part.strip()]
+        return list(dict.fromkeys(_pack_text_units(units, chunk_size, overlap)))
+    if strategy == "recursive":
+        # Preserve paragraph boundaries first, then split oversized paragraphs by sentence,
+        # and finally split any still-oversized sentence into word windows.
+        chunks: list[str] = []
+        paragraphs = [part.strip() for part in re.split(r"\n\s*\n", text_value.strip()) if part.strip()]
+        for paragraph in paragraphs:
+            units = [part.strip() for part in re.split(r"(?<=[.!?])\s+", paragraph) if part.strip()]
+            chunks.extend(_pack_text_units(units, chunk_size, overlap))
+        return list(dict.fromkeys(chunks))
+    raise ValueError("Unsupported chunking strategy.")
 
 def _cosine(left: list[float], right: list[float]) -> float:
     if not left or len(left) != len(right):
