@@ -2,14 +2,13 @@
 from __future__ import annotations
 
 import json
-import os
 import sqlite3
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlencode, urlparse
+from urllib.parse import urlencode, urlparse
 from urllib.request import Request, urlopen
 
 from cryptography.fernet import Fernet, InvalidToken
@@ -50,7 +49,7 @@ def ensure_model_table() -> None:
                 encrypted_api_key TEXT,
                 base_url TEXT,
                 created_at TEXT NOT NULL,
-                UNIQUE(provider, model_id, base_url)
+                UNIQUE(provider, model_id)
             )"""
         )
 
@@ -100,7 +99,7 @@ def _json_request(url: str, headers: dict[str, str] | None = None) -> dict[str, 
             return payload
     except HTTPError as exc:
         # Never return provider URLs or request headers, which can contain credentials.
-        if exc.code in (401, 403):
+        if exc.code in (400, 401, 403):
             raise HTTPException(status_code=401, detail="Provider rejected this API key. Check the key and its permissions.") from exc
         if exc.code == 429:
             raise HTTPException(status_code=429, detail="Provider rate limit reached. Try again shortly.") from exc
@@ -159,6 +158,24 @@ def discover_models(provider: Provider, api_key: str | None, base_url: str | Non
                 models.append({"id": name, "name": name})
         return sorted(models, key=lambda item: item["id"])
     raise HTTPException(status_code=422, detail="Unsupported model provider.")
+
+
+def get_model_runtime_config(configured_model_id: str) -> dict[str, Any]:
+    """Resolve a saved model for server-side inference without exposing its key over the API."""
+    ensure_model_table()
+    with connect() as db:
+        row = db.execute(
+            "SELECT * FROM configured_models WHERE id=?", (configured_model_id,)
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Configured model not found")
+    return {
+        "id": row["id"],
+        "provider": row["provider"],
+        "model_id": row["model_id"],
+        "api_key": decrypt_api_key(row["encrypted_api_key"]),
+        "base_url": row["base_url"],
+    }
 
 
 def public_model(row: Any) -> dict[str, Any]:
