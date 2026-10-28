@@ -92,3 +92,24 @@ def test_upload_rejects_unsupported_files(tmp_path: Path, monkeypatch) -> None:
     assert response.status_code == 200
     assert response.json()["uploaded"] == []
     assert response.json()["failed"][0]["filename"] == "payload.exe"
+
+def test_deleting_benchmark_unlinks_experiment(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("RAGSTUDIO_DATA_DIR", str(tmp_path))
+    import importlib
+    import src.ragstudio.storage as storage
+    import app.main as main
+    importlib.reload(storage)
+    importlib.reload(main)
+    client = TestClient(main.app)
+    dataset_id = client.post("/api/datasets", json={"name": "sample corpus"}).json()["id"]
+    benchmark = client.post("/api/benchmarks", json={
+        "name": "sample benchmark", "dataset_id": dataset_id, "questions": []
+    }).json()
+    experiment = client.post("/api/experiments", json={
+        "name": "sample experiment", "dataset_id": dataset_id, "benchmark_id": benchmark["id"]
+    }).json()
+
+    response = client.delete(f"/api/benchmarks/{benchmark['id']}")
+    assert response.status_code == 204
+    assert client.get(f"/api/benchmarks/{benchmark['id']}").status_code == 404
+    assert client.get(f"/api/experiments/{experiment['id']}").json()["benchmark_id"] is None

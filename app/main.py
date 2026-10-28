@@ -16,7 +16,11 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 from starlette.requests import Request
 
-from src.ragstudio.storage import connect, data_dir
+try:
+    from ragstudio.storage import connect, data_dir
+except ModuleNotFoundError:
+    # Supports running directly from a source checkout without an editable install.
+    from src.ragstudio.storage import connect, data_dir
 
 app = FastAPI(
     title="RAG Optimization Studio",
