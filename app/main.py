@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import math
@@ -851,10 +852,12 @@ def _run_experiment_sync(experiment_id: str) -> dict[str, Any]:
     summary["total_tokens"] = sum(item.get("total_tokens", 0) for item in usage_items) if usage_items else None
     summary["cost_usd"] = None  # No provider-specific pricing table is configured.
     completed_at = now_iso()
+    benchmark_fingerprint = hashlib.sha256(json.dumps(questions, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
     result_payload = {
         "experiment_id": experiment_id,
         "dataset_id": dataset_id,
         "benchmark_id": benchmark_id,
+        "benchmark_fingerprint": benchmark_fingerprint,
         "retrieval_method": config["retrieval_method"],
         "chunk_count": len(chunks),
         "summary": summary,
@@ -924,7 +927,7 @@ async def compare_experiments(body: ExperimentCompareRequest) -> dict[str, Any]:
     placeholders = ",".join("?" for _ in body.experiment_ids)
     with connect() as db:
         rows = db.execute(
-            f"SELECT id,name,dataset_id,benchmark_id,config_json,status,summary_json FROM experiments WHERE id IN ({placeholders})",
+            f"SELECT id,name,dataset_id,benchmark_id,config_json,status,summary_json,results_json FROM experiments WHERE id IN ({placeholders})",
             tuple(body.experiment_ids),
         ).fetchall()
     by_id = {row["id"]: row for row in rows}
@@ -935,6 +938,9 @@ async def compare_experiments(body: ExperimentCompareRequest) -> dict[str, Any]:
         raise HTTPException(status_code=409, detail="Only completed experiments can be compared.")
     if len({row["dataset_id"] for row in ordered}) != 1 or len({row["benchmark_id"] for row in ordered}) != 1:
         raise HTTPException(status_code=409, detail="Experiments must use the same dataset and benchmark to be compared.")
+    fingerprints = [json_load(row["results_json"], {}).get("benchmark_fingerprint") for row in ordered]
+    if not all(fingerprints) or len(set(fingerprints)) != 1:
+        raise HTTPException(status_code=409, detail="Experiments were run against different benchmark question sets and cannot be compared.")
     configs = [json_load(row["config_json"], {}) for row in ordered]
     keys = sorted(set().union(*(config.keys() for config in configs)))
     differences = {
