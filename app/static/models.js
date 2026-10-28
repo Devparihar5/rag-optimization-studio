@@ -200,6 +200,9 @@
   experimentModel?.addEventListener('change', () => {
     if (experimentSubmit) experimentSubmit.disabled = !experimentModel.value;
   });
+  document.getElementById('experiment-form')?.addEventListener('reset', () => {
+    if (experimentSubmit) experimentSubmit.disabled = true;
+  });
 
   updateProviderFields();
   loadConfiguredModels();
