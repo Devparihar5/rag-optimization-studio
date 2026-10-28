@@ -11,6 +11,7 @@ const TAB_TITLES = {
   experiments: 'Experiments',
   datasets:    'Datasets',
   benchmarks:  'Benchmarks',
+  models:      'Models',
 };
 
 function switchTab(tabName) {
