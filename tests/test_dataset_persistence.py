@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 def test_dataset_upload_persistence_and_cascade(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("RAGSTUDIO_DATA_DIR", str(tmp_path))
-    import src.ragstudio.storage as storage
+    import ragstudio.storage as storage
     import app.main as main
     importlib.reload(storage)
     importlib.reload(main)
@@ -59,7 +59,7 @@ def test_dataset_upload_persistence_and_cascade(tmp_path: Path, monkeypatch) -> 
 
 def test_rejects_benchmark_from_another_dataset(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("RAGSTUDIO_DATA_DIR", str(tmp_path))
-    import src.ragstudio.storage as storage
+    import ragstudio.storage as storage
     import app.main as main
     importlib.reload(storage)
     importlib.reload(main)
@@ -79,7 +79,7 @@ def test_rejects_benchmark_from_another_dataset(tmp_path: Path, monkeypatch) -> 
 
 def test_upload_rejects_unsupported_files(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("RAGSTUDIO_DATA_DIR", str(tmp_path))
-    import src.ragstudio.storage as storage
+    import ragstudio.storage as storage
     import app.main as main
     importlib.reload(storage)
     importlib.reload(main)
@@ -96,7 +96,7 @@ def test_upload_rejects_unsupported_files(tmp_path: Path, monkeypatch) -> None:
 def test_deleting_benchmark_unlinks_experiment(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("RAGSTUDIO_DATA_DIR", str(tmp_path))
     import importlib
-    import src.ragstudio.storage as storage
+    import ragstudio.storage as storage
     import app.main as main
     importlib.reload(storage)
     importlib.reload(main)
