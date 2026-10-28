@@ -217,7 +217,10 @@
               <div class="form-row">
                 <label class="form-label">
                   Embedding model
-                  <input class="form-input" name="embedding_model" value="sentence-transformers/all-MiniLM-L6-v2" />
+                  <select class="form-input" name="embedding_model" required aria-label="Select configured embedding model">
+                    <option value="" selected disabled>Configure an embedding model first…</option>
+                  </select>
+                  <small class="selector-help" id="embedding-model-help">Add an embedding model on the Models page first.</small>
                 </label>
                 <label class="form-label">
                   Generation model
@@ -350,6 +353,13 @@
           <form id="model-provider-form" class="form-grid">
             <div class="form-row">
               <label class="form-label">
+                Model type
+                <select class="form-input" id="model-type" name="model_type">
+                  <option value="generation">Generation model</option>
+                  <option value="embedding">Embedding model</option>
+                </select>
+              </label>
+              <label class="form-label">
                 Provider
                 <select class="form-input" id="model-provider" name="provider">
                   <option value="openai">OpenAI</option>
@@ -389,11 +399,17 @@
 
         <div class="card" style="margin-top:16px;">
           <div class="card-header">
-            <h2>Configured models</h2>
+            <h2>Configured generation models</h2>
             <button class="btn btn-ghost" id="refresh-models" type="button">Refresh</button>
           </div>
           <div id="configured-models-list">
-            <div class="empty-state"><div class="empty-icon">🤖</div><p>No models configured yet.</p></div>
+            <div class="empty-state"><div class="empty-icon">🤖</div><p>No generation models configured yet.</p></div>
+          </div>
+        </div>
+        <div class="card" style="margin-top:16px;">
+          <div class="card-header"><h2>Configured embedding models</h2></div>
+          <div id="configured-embedding-models-list">
+            <div class="empty-state"><div class="empty-icon">🧩</div><p>No embedding models configured yet.</p></div>
           </div>
         </div>
       </section>
