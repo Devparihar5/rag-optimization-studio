@@ -203,7 +203,7 @@ class ExperimentConfig(BaseModel):
 class ExperimentCreateRequest(BaseModel):
     name: str = Field(min_length=3, max_length=200)
     dataset_id: str
-    benchmark_id: str | None = None
+    benchmark_id: str
     config: ExperimentConfig = Field(default_factory=ExperimentConfig)
 
 
@@ -245,6 +245,16 @@ def experiment_record(row: Any) -> dict[str, Any]:
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def dashboard(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(request, "index.html")
+
+
+@app.on_event("startup")
+async def mark_interrupted_experiments() -> None:
+    # A single-process MVP cannot resume an in-flight provider request after restart.
+    with connect() as db:
+        db.execute(
+            "UPDATE experiments SET status='failed',completed_at=?,error_message=? WHERE status='running'",
+            (now_iso(), "Execution was interrupted by a server restart. Run the experiment again.",),
+        )
 
 
 @app.get("/api/health", tags=["system"])
