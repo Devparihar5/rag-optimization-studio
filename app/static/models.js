@@ -1,4 +1,4 @@
-/* Provider setup, model discovery, and experiment model selector. */
+/* Provider setup, generation and embedding model discovery. */
 'use strict';
 
 (() => {
@@ -6,6 +6,7 @@
   if (!form) return;
 
   const provider = document.getElementById('model-provider');
+  const modelType = document.getElementById('model-type');
   const apiKey = document.getElementById('model-api-key');
   const apiKeyWrap = document.getElementById('model-api-key-wrap');
   const baseUrl = document.getElementById('model-base-url');
@@ -15,10 +16,14 @@
   const modelChoice = document.getElementById('discovered-model');
   const saveButton = document.getElementById('save-model');
   const status = document.getElementById('model-discovery-status');
-  const modelsList = document.getElementById('configured-models-list');
-  const experimentModel = document.querySelector('#experiment-form [name="generation_model"]');
-  const experimentSubmit = document.querySelector('#experiment-form [type="submit"]');
+  const generationList = document.getElementById('configured-models-list');
+  const embeddingList = document.getElementById('configured-embedding-models-list');
+  const experimentForm = document.getElementById('experiment-form');
+  const experimentModel = experimentForm?.querySelector('[name="generation_model"]');
+  const embeddingModel = experimentForm?.querySelector('[name="embedding_model"]');
+  const experimentSubmit = experimentForm?.querySelector('[type="submit"]');
   const experimentHelp = document.getElementById('generation-model-help');
+  const embeddingHelp = document.getElementById('embedding-model-help');
 
   let discovered = [];
   let discoveredFor = '';
@@ -46,13 +51,10 @@
     status.className = 'form-status' + (type ? ' ' + type : '');
   }
 
-  function currentProviderPayload() {
+  function currentPayload() {
     const value = { provider: provider.value };
-    if (provider.value === 'ollama') {
-      value.base_url = baseUrl.value.trim() || 'http://localhost:11434';
-    } else {
-      value.api_key = apiKey.value.trim();
-    }
+    if (provider.value === 'ollama') value.base_url = baseUrl.value.trim() || 'http://localhost:11434';
+    else value.api_key = apiKey.value.trim();
     return value;
   }
 
@@ -75,6 +77,13 @@
   }
 
   provider.addEventListener('change', updateProviderFields);
+  modelType.addEventListener('change', () => {
+    invalidateDiscovery();
+    setStatus('');
+    discoverButton.textContent = modelType.value === 'embedding'
+      ? 'Verify connection & load embedding models'
+      : 'Verify connection & load generation models';
+  });
   apiKey.addEventListener('input', invalidateDiscovery);
   baseUrl.addEventListener('input', invalidateDiscovery);
 
@@ -84,12 +93,13 @@
     discoverButton.textContent = 'Checking provider…';
     setStatus('Checking credentials and loading available models…');
     try {
-      const payload = currentProviderPayload();
-      const result = await request('/models/discover', 'POST', payload);
+      const payload = currentPayload();
+      const kind = modelType.value;
+      const result = await request('/' + kind + '-models/discover', 'POST', payload);
       discovered = result.models || [];
-      discoveredFor = JSON.stringify(payload);
+      discoveredFor = JSON.stringify({ ...payload, model_type: kind });
       if (!discovered.length) {
-        setStatus('Connection succeeded, but no generation models were found for this account.', 'error');
+        setStatus('Connection succeeded, but no compatible ' + kind + ' models were found for this account.', 'error');
         return;
       }
       modelChoice.replaceChildren(new Option('Choose a model…', ''));
@@ -97,12 +107,14 @@
         modelChoice.add(new Option(model.name === model.id ? model.id : model.name + ' (' + model.id + ')', model.id));
       });
       choiceWrap.classList.remove('hidden');
-      setStatus('Verified. Found ' + discovered.length + ' available model(s).', 'success');
+      setStatus('Verified. Found ' + discovered.length + ' available ' + kind + ' model(s).', 'success');
     } catch (error) {
       setStatus(error.message, 'error');
     } finally {
       discoverButton.disabled = false;
-      discoverButton.textContent = 'Verify connection & load models';
+      discoverButton.textContent = modelType.value === 'embedding'
+        ? 'Verify connection & load embedding models'
+        : 'Verify connection & load generation models';
     }
   });
 
@@ -112,15 +124,16 @@
 
   form.addEventListener('submit', async event => {
     event.preventDefault();
-    const payload = currentProviderPayload();
-    if (!modelChoice.value || discoveredFor !== JSON.stringify(payload)) {
+    const payload = currentPayload();
+    const kind = modelType.value;
+    if (!modelChoice.value || discoveredFor !== JSON.stringify({ ...payload, model_type: kind })) {
       setStatus('Verify the provider again and select one of its available models.', 'error');
       return;
     }
     saveButton.disabled = true;
     saveButton.textContent = 'Saving…';
     try {
-      const result = await request('/models', 'POST', { ...payload, model_id: modelChoice.value });
+      const result = await request('/' + kind + '-models', 'POST', { ...payload, model_id: modelChoice.value });
       setStatus('Added ' + result.name + ' successfully.', 'success');
       apiKey.value = '';
       invalidateDiscovery();
@@ -133,74 +146,93 @@
     }
   });
 
+  async function renderModelList(path, target, kind) {
+    const models = await request(path);
+    if (!models.length) {
+      target.innerHTML = '<div class="empty-state"><div class="empty-icon">🤖</div><p>No ' + kind + ' models configured yet.</p></div>';
+      return models;
+    }
+    target.innerHTML = '<div class="configured-models">' + models.map(model => {
+      const providerName = { openai: 'OpenAI', gemini: 'Google Gemini', ollama: 'Ollama · Local' }[model.provider] || model.provider;
+      const credential = model.provider === 'ollama' ? 'Local endpoint' : 'API key saved securely';
+      return '<article class="configured-model"><div class="configured-model-icon">🤖</div>' +
+        '<div class="configured-model-info"><strong>' + escapeHtml(model.name) + '</strong>' +
+        '<span>' + escapeHtml(providerName) + ' · ' + escapeHtml(model.model_id) + '</span>' +
+        '<small>' + escapeHtml(credential) + '</small></div>' +
+        '<button type="button" class="btn btn-danger" data-remove-model="' + escapeHtml(model.id) +
+        '" data-kind="' + kind + '">Remove</button></article>';
+    }).join('') + '</div>';
+    target.querySelectorAll('[data-remove-model]').forEach(button => {
+      button.addEventListener('click', async () => {
+        if (!confirm('Remove this ' + kind + ' model?')) return;
+        button.disabled = true;
+        try {
+          const endpoint = button.dataset.kind === 'embedding' ? '/embedding-models/' : '/models/';
+          await request(endpoint + encodeURIComponent(button.dataset.removeModel), 'DELETE');
+          await loadConfiguredModels();
+        } catch (error) {
+          alert(error.message);
+          button.disabled = false;
+        }
+      });
+    });
+    return models;
+  }
+
   async function loadConfiguredModels() {
     try {
-      const models = await request('/models');
-      if (!models.length) {
-        modelsList.innerHTML = '<div class="empty-state"><div class="empty-icon">🤖</div><p>No models configured yet. Add an online or local model above.</p></div>';
-      } else {
-        modelsList.innerHTML = '<div class="configured-models">' + models.map(model => {
-          const providerName = { openai: 'OpenAI', gemini: 'Google Gemini', ollama: 'Ollama · Local' }[model.provider] || model.provider;
-          const credential = model.provider === 'ollama' ? 'Local endpoint' : 'API key saved securely';
-          return '<article class="configured-model">' +
-            '<div class="configured-model-icon">🤖</div>' +
-            '<div class="configured-model-info"><strong>' + escapeHtml(model.name) + '</strong>' +
-            '<span>' + escapeHtml(providerName) + ' · ' + escapeHtml(model.model_id) + '</span>' +
-            '<small>' + escapeHtml(credential) + '</small></div>' +
-            '<button type="button" class="btn btn-danger" data-remove-model="' + escapeHtml(model.id) + '">Remove</button>' +
-            '</article>';
-        }).join('') + '</div>';
-        modelsList.querySelectorAll('[data-remove-model]').forEach(button => {
-          button.addEventListener('click', async () => {
-            if (!confirm('Remove this configured model? Existing experiments will keep their saved configuration.')) return;
-            button.disabled = true;
-            try {
-              await request('/models/' + encodeURIComponent(button.dataset.removeModel), 'DELETE');
-              await loadConfiguredModels();
-            } catch (error) {
-              alert(error.message);
-              button.disabled = false;
-            }
-          });
-        });
-      }
+      const [generations, embeddings] = await Promise.all([
+        renderModelList('/models', generationList, 'generation'),
+        renderModelList('/embedding-models', embeddingList, 'embedding'),
+      ]);
 
       if (experimentModel) {
         const previous = experimentModel.value;
         experimentModel.replaceChildren();
-        if (!models.length) {
-          experimentModel.add(new Option('Configure a model first…', ''));
-          experimentModel.disabled = true;
-          if (experimentSubmit) experimentSubmit.disabled = true;
-          if (experimentHelp) experimentHelp.textContent = 'Add a model on the Models page before creating an experiment.';
-        } else {
-          experimentModel.add(new Option('Choose a configured model…', ''));
-          models.forEach(model => {
-            const providerName = { openai: 'OpenAI', gemini: 'Gemini', ollama: 'Ollama' }[model.provider] || model.provider;
-            experimentModel.add(new Option(providerName + ' · ' + model.name, model.id));
-          });
-          experimentModel.value = models.some(model => model.id === previous) ? previous : '';
-          experimentModel.disabled = false;
-          if (experimentSubmit) experimentSubmit.disabled = !experimentModel.value;
-          if (experimentHelp) experimentHelp.textContent = 'Choose a model configured on the Models page. Provider credentials are stored on the server.';
-        }
+        experimentModel.add(new Option(generations.length ? 'Choose a generation model…' : 'Configure a generation model first…', ''));
+        generations.forEach(model => {
+          const providerName = { openai: 'OpenAI', gemini: 'Gemini', ollama: 'Ollama' }[model.provider] || model.provider;
+          experimentModel.add(new Option(providerName + ' · ' + model.name, model.id));
+        });
+        experimentModel.value = generations.some(model => model.id === previous) ? previous : '';
+        experimentModel.disabled = generations.length === 0;
+        if (experimentHelp) experimentHelp.textContent = generations.length
+          ? 'Choose a configured generation model.'
+          : 'Add a generation model on the Models page first.';
+      }
+
+      if (embeddingModel) {
+        const previous = embeddingModel.value;
+        embeddingModel.replaceChildren();
+        embeddingModel.add(new Option(embeddings.length ? 'Choose an embedding model…' : 'Configure an embedding model first…', ''));
+        embeddings.forEach(model => {
+          const providerName = { openai: 'OpenAI', gemini: 'Gemini', ollama: 'Ollama' }[model.provider] || model.provider;
+          embeddingModel.add(new Option(providerName + ' · ' + model.name, model.id));
+        });
+        embeddingModel.value = embeddings.some(model => model.id === previous) ? previous : '';
+        embeddingModel.disabled = embeddings.length === 0;
+        if (embeddingHelp) embeddingHelp.textContent = embeddings.length
+          ? 'Choose a configured embedding model.'
+          : 'Add an embedding model on the Models page first.';
+      }
+
+      if (experimentSubmit) {
+        experimentSubmit.disabled = !experimentModel?.value || !embeddingModel?.value;
       }
     } catch (error) {
-      modelsList.innerHTML = '<div class="empty-state"><p class="error-text">Could not load configured models: ' + escapeHtml(error.message) + '</p></div>';
-      if (experimentModel) {
-        experimentModel.disabled = true;
-        experimentModel.replaceChildren(new Option('Could not load models', ''));
-      }
+      generationList.innerHTML = '<div class="empty-state"><p class="error-text">Could not load models: ' + escapeHtml(error.message) + '</p></div>';
+      if (experimentModel) experimentModel.disabled = true;
+      if (embeddingModel) embeddingModel.disabled = true;
       if (experimentSubmit) experimentSubmit.disabled = true;
     }
   }
 
   document.getElementById('refresh-models').addEventListener('click', loadConfiguredModels);
   document.querySelector('[data-tab="models"]')?.addEventListener('click', loadConfiguredModels);
-  experimentModel?.addEventListener('change', () => {
-    if (experimentSubmit) experimentSubmit.disabled = !experimentModel.value;
-  });
-  document.getElementById('experiment-form')?.addEventListener('reset', () => {
+  [experimentModel, embeddingModel].forEach(select => select?.addEventListener('change', () => {
+    if (experimentSubmit) experimentSubmit.disabled = !experimentModel?.value || !embeddingModel?.value;
+  }));
+  experimentForm?.addEventListener('reset', () => {
     if (experimentSubmit) experimentSubmit.disabled = true;
   });
 
