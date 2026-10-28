@@ -212,6 +212,28 @@ def test_retrieval_strategies_and_chunking_are_deterministic(tmp_path: Path, mon
     assert main._question_metrics([], chunks, [], 2)["mrr"] is None
 
 
+def test_openai_embedding_requests_are_batched_and_ordered(tmp_path: Path, monkeypatch) -> None:
+    client, _ = _client(tmp_path, monkeypatch)
+    import app.main as main
+    batch_sizes = []
+
+    def fake_provider_json(url, payload, headers=None):
+        values = payload["input"]
+        batch_sizes.append(len(values))
+        return {"data": [
+            {"index": index, "embedding": [float(value.split("-")[1])]}
+            for index, value in enumerate(values)
+        ]}
+
+    monkeypatch.setattr(main, "_provider_json", fake_provider_json)
+    texts = [f"item-{index}" for index in range(130)]
+    vectors = main._embed_texts({
+        "provider": "openai", "model_id": "mock-embedding", "api_key": "test"
+    }, texts)
+    assert batch_sizes == [128, 2]
+    assert vectors == [[float(index)] for index in range(130)]
+
+
 def test_experiment_execution_persists_real_results_and_failure(tmp_path: Path, monkeypatch) -> None:
     client, _ = _client(tmp_path, monkeypatch)
     import app.main as main
@@ -272,6 +294,22 @@ def test_experiment_execution_persists_real_results_and_failure(tmp_path: Path, 
         "experiment_ids": [experiment_id, second["id"]],
     })
     assert incompatible.status_code == 409
+
+    # Restore the original evaluation set but change corpus contents: comparison must still fail.
+    assert client.put(f"/api/benchmarks/{benchmark['id']}", json={
+        "name": "sky QA",
+        "questions": [{"question": "What color is the sky?", "answer": "Blue.", "relevant_passages": ["The sky is blue."]}],
+    }).status_code == 200
+    extra = client.post(
+        f"/api/datasets/{dataset['id']}/documents",
+        files=[("files", ("extra.txt", b"A new paragraph in the corpus.", "text/plain"))],
+    )
+    assert extra.status_code == 200
+    assert client.post(f"/api/experiments/{second['id']}/run").status_code == 200
+    different_corpus = client.post("/api/experiments/compare", json={
+        "experiment_ids": [experiment_id, second["id"]],
+    })
+    assert different_corpus.status_code == 409
 
     monkeypatch.setattr(main, "_generate_answer", lambda *args: (_ for _ in ()).throw(RuntimeError("mock provider failure")))
     failed = client.post(f"/api/experiments/{experiment_id}/run")
