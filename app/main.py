@@ -10,7 +10,7 @@ from collections import Counter
 from datetime import datetime, timezone
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
-from urllib.request import Request, urlopen
+from urllib.request import Request as URLRequest, urlopen
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
@@ -515,7 +515,7 @@ async def delete_experiment(experiment_id: str) -> None:
 # ---- Retrieval, provider inference, execution and evaluation -----------------
 
 def _provider_json(url: str, payload: dict[str, Any], headers: dict[str, str] | None = None) -> dict[str, Any]:
-    request = Request(
+    request = URLRequest(
         url,
         data=json.dumps(payload).encode("utf-8"),
         headers={"Content-Type": "application/json", **(headers or {})},
@@ -553,8 +553,9 @@ def _embed_texts(runtime: dict[str, Any], texts: list[str]) -> list[list[float]]
         vectors = []
         for text_value in texts:
             result = _provider_json(
-                f"https://generativelanguage.googleapis.com/v1beta/models/{quote(model, safe='')}:embedContent?{urlencode({'key': runtime['api_key']})}",
+                f"https://generativelanguage.googleapis.com/v1beta/models/{quote(model, safe='')}:embedContent",
                 {"content": {"parts": [{"text": text_value}]}},
+                {"x-goog-api-key": runtime["api_key"]},
             )
             vectors.append(result.get("embedding", {}).get("values", []))
         return vectors
@@ -598,8 +599,9 @@ def _generate_answer(runtime: dict[str, Any], question: str, evidence: list[dict
         return str(answer).strip(), usage
     if provider == "gemini":
         result = _provider_json(
-            f"https://generativelanguage.googleapis.com/v1beta/models/{quote(model, safe='')}:generateContent?{urlencode({'key': runtime['api_key']})}",
+            f"https://generativelanguage.googleapis.com/v1beta/models/{quote(model, safe='')}:generateContent",
             {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0}},
+            {"x-goog-api-key": runtime["api_key"]},
         )
         parts = result.get("candidates", [{}])[0].get("content", {}).get("parts", [])
         answer = "\n".join(part.get("text", "") for part in parts if isinstance(part, dict))
