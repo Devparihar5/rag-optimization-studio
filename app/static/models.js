@@ -24,6 +24,16 @@
   const experimentSubmit = experimentForm?.querySelector('[type="submit"]');
   const experimentHelp = document.getElementById('generation-model-help');
   const embeddingHelp = document.getElementById('embedding-model-help');
+  const datasetSelect = experimentForm?.querySelector('[name="dataset_id"]');
+
+  function updateExperimentSubmitState() {
+    if (!experimentSubmit) return;
+    experimentSubmit.disabled = !datasetSelect?.value || !experimentModel?.value ||
+      !embeddingModel?.value || experimentModel.disabled || embeddingModel.disabled;
+  }
+
+  // Prevent a brief enabled-submit window while async selectors are loading.
+  updateExperimentSubmitState();
 
   let discovered = [];
   let discoveredFor = '';
@@ -218,24 +228,28 @@
           : 'Add an embedding model on the Models page first.';
       }
 
-      if (experimentSubmit) {
-        const datasetSelect = experimentForm?.querySelector('[name="dataset_id"]');
-        experimentSubmit.disabled = !datasetSelect?.value || !experimentModel?.value || !embeddingModel?.value;
-      }
+      updateExperimentSubmitState();
     } catch (error) {
       generationList.innerHTML = '<div class="empty-state"><p class="error-text">Could not load models: ' + escapeHtml(error.message) + '</p></div>';
       if (experimentModel) experimentModel.disabled = true;
       if (embeddingModel) embeddingModel.disabled = true;
-      if (experimentSubmit) experimentSubmit.disabled = true;
+      updateExperimentSubmitState();
     }
   }
 
   document.getElementById('refresh-models').addEventListener('click', loadConfiguredModels);
   document.querySelector('[data-tab="models"]')?.addEventListener('click', loadConfiguredModels);
-  const datasetSelect = experimentForm?.querySelector('[name="dataset_id"]');
-  [datasetSelect, experimentModel, embeddingModel].forEach(select => select?.addEventListener('change', () => {
-    if (experimentSubmit) experimentSubmit.disabled = !datasetSelect?.value || !experimentModel?.value || !embeddingModel?.value;
-  }));
+  [datasetSelect, experimentModel, embeddingModel].forEach(select => select?.addEventListener('change', updateExperimentSubmitState));
+  // novalidate is used by the form, so enforce the same requirement in code as well.
+  experimentForm?.addEventListener('submit', event => {
+    if (!datasetSelect?.value || !experimentModel?.value || !embeddingModel?.value ||
+        experimentModel.disabled || embeddingModel.disabled) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      updateExperimentSubmitState();
+      setStatus('Select a dataset, generation model, and embedding model before creating an experiment.', 'error');
+    }
+  }, true);
   experimentForm?.addEventListener('reset', () => {
     if (experimentSubmit) experimentSubmit.disabled = true;
   });
