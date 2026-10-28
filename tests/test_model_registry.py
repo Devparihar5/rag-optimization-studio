@@ -202,9 +202,13 @@ def test_retrieval_strategies_and_chunking_are_deterministic(tmp_path: Path, mon
     assert dense[0]["filename"] == "b.txt"
     assert lexical[0]["filename"] == "a.txt"
     assert len(hybrid) == 2
-    assert main._chunk_document("One short sentence. Another sentence.", "sentence-aware", 100, 0) == [
-        "One short sentence. Another sentence."
-    ]
+    assert hybrid[0]["filename"] == "a.txt"
+    assert hybrid[1]["filename"] == "b.txt"
+    assert main._chunk_document("a b c d", "fixed-size", 3, 1) == ["a b c", "c d"]
+    sentence_chunks = main._chunk_document("Paragraph one has words.\n\nParagraph two has words.", "sentence-aware", 100, 0)
+    recursive_chunks = main._chunk_document("Paragraph one has words.\n\nParagraph two has words.", "recursive", 100, 0)
+    assert sentence_chunks == ["Paragraph one has words. Paragraph two has words."]
+    assert recursive_chunks == ["Paragraph one has words.", "Paragraph two has words."]
     assert main._question_metrics([], chunks, [], 2)["mrr"] is None
 
 
