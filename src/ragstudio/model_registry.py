@@ -338,6 +338,24 @@ async def save_configured_model(body: ModelSaveRequest) -> dict[str, Any]:
     return public_model(row)
 
 
+def get_embedding_model_runtime_config(configured_model_id: str) -> dict[str, Any]:
+    """Resolve a saved embedding model for server-side use without exposing its key over the API."""
+    ensure_embedding_table()
+    with connect() as db:
+        row = db.execute(
+            "SELECT * FROM configured_embedding_models WHERE id=?", (configured_model_id,)
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Configured embedding model not found")
+    return {
+        "id": row["id"],
+        "provider": row["provider"],
+        "model_id": row["model_id"],
+        "api_key": decrypt_api_key(row["encrypted_api_key"]),
+        "base_url": row["base_url"],
+    }
+
+
 def public_embedding_model(row: Any) -> dict[str, Any]:
     return {
         "id": row["id"],
