@@ -95,7 +95,8 @@
     try {
       const payload = currentPayload();
       const kind = modelType.value;
-      const result = await request('/' + kind + '-models/discover', 'POST', payload);
+      const endpoint = kind === 'embedding' ? '/embedding-models/discover' : '/models/discover';
+      const result = await request(endpoint, 'POST', payload);
       discovered = result.models || [];
       discoveredFor = JSON.stringify({ ...payload, model_type: kind });
       if (!discovered.length) {
@@ -133,7 +134,8 @@
     saveButton.disabled = true;
     saveButton.textContent = 'Saving…';
     try {
-      const result = await request('/' + kind + '-models', 'POST', { ...payload, model_id: modelChoice.value });
+      const endpoint = kind === 'embedding' ? '/embedding-models' : '/models';
+      const result = await request(endpoint, 'POST', { ...payload, model_id: modelChoice.value });
       setStatus('Added ' + result.name + ' successfully.', 'success');
       apiKey.value = '';
       invalidateDiscovery();
