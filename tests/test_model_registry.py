@@ -95,3 +95,53 @@ def test_local_model_does_not_require_api_key(tmp_path: Path, monkeypatch) -> No
     assert response.status_code == 201
     assert response.json()["provider"] == "ollama"
     assert response.json()["has_api_key"] is False
+
+
+
+def test_embedding_model_discovery_and_storage(tmp_path: Path, monkeypatch) -> None:
+    client, model_registry = _client(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        model_registry,
+        "discover_embedding_models",
+        lambda provider, api_key, base_url: [{"id": "text-embedding-3-small", "name": "Text Embedding 3 Small"}],
+    )
+
+    discovery = client.post("/api/embedding-models/discover", json={
+        "provider": "openai", "api_key": "test-embedding-key"
+    })
+    assert discovery.status_code == 200
+    assert discovery.json()["models"][0]["id"] == "text-embedding-3-small"
+
+    saved = client.post("/api/embedding-models", json={
+        "provider": "openai",
+        "api_key": "test-embedding-key",
+        "model_id": "text-embedding-3-small",
+    })
+    assert saved.status_code == 201
+    saved_json = saved.json()
+    assert saved_json["has_api_key"] is True
+    assert "test-embedding-key" not in saved.text
+
+    listed = client.get("/api/embedding-models")
+    assert listed.status_code == 200
+    assert len(listed.json()) == 1
+    assert listed.json()[0]["model_id"] == "text-embedding-3-small"
+
+    deleted = client.delete(f"/api/embedding-models/{saved_json['id']}")
+    assert deleted.status_code == 204
+    assert client.get("/api/embedding-models").json() == []
+
+
+def test_embedding_model_cannot_save_model_not_discovered(tmp_path: Path, monkeypatch) -> None:
+    client, model_registry = _client(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        model_registry,
+        "discover_embedding_models",
+        lambda provider, api_key, base_url: [{"id": "text-embedding-3-small", "name": "Text Embedding 3 Small"}],
+    )
+    response = client.post("/api/embedding-models", json={
+        "provider": "openai",
+        "api_key": "test-key",
+        "model_id": "gpt-4o",
+    })
+    assert response.status_code == 422
