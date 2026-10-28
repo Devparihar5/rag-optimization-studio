@@ -103,7 +103,7 @@
             </div>
             <ul class="tip-list">
               <li>Start with <strong>Hybrid RRF</strong> retrieval as your baseline</li>
-              <li>Enable <strong>reranking</strong> to boost precision at no latency cost</li>
+              <li>Use a labelled benchmark to measure retrieval quality</li>
               <li>Test <strong>chunk sizes</strong> between 256–1024 tokens</li>
               <li>Use <strong>sentence-aware</strong> chunking for conversational corpora</li>
               <li>Compare <strong>MRR</strong> and <strong>NDCG@k</strong> across runs</li>
@@ -116,6 +116,8 @@
       <section id="tab-experiments" class="tab-content">
         <div class="toolbar">
           <button class="btn btn-primary" id="btn-new-experiment">+ New experiment</button>
+          <button class="btn btn-ghost" id="btn-compare-experiments" type="button" disabled>Compare selected (0)</button>
+          <span id="experiment-action-status" class="form-status" role="status" aria-live="polite"></span>
         </div>
 
         <div class="card" style="margin-top:16px;">
@@ -154,7 +156,7 @@
                 </label>
               </div>
               <label class="form-label">
-                Benchmark <span class="optional">(optional)</span>
+                Benchmark <span class="required">*</span>
                 <select class="form-input" name="benchmark_id" aria-label="Select experiment benchmark">
                   <option value="">No benchmark (optional)</option>
                 </select>
@@ -172,11 +174,11 @@
                   </select>
                 </label>
                 <label class="form-label">
-                  Chunk size (tokens)
+                  Chunk size (words, approximate)
                   <input class="form-input" name="chunk_size" type="number" value="500" min="100" max="2000" />
                 </label>
                 <label class="form-label">
-                  Overlap (tokens)
+                  Overlap (words)
                   <input class="form-input" name="overlap" type="number" value="50" min="0" max="500" />
                 </label>
               </div>
@@ -199,17 +201,17 @@
               <div class="form-row">
                 <label class="form-label toggle-label">
                   <div class="toggle-wrap">
-                    <input name="reranking" type="checkbox" class="toggle-input" checked />
+                    <input name="reranking" type="checkbox" class="toggle-input" disabled />
                     <span class="toggle-track"></span>
                   </div>
-                  Enable reranking
+                  Enable reranking <span class="optional">(not implemented yet)</span>
                 </label>
                 <label class="form-label toggle-label">
                   <div class="toggle-wrap">
-                    <input name="query_rewrite" type="checkbox" class="toggle-input" />
+                    <input name="query_rewrite" type="checkbox" class="toggle-input" disabled />
                     <span class="toggle-track"></span>
                   </div>
-                  Query rewriting
+                  Query rewriting <span class="optional">(not implemented yet)</span>
                 </label>
               </div>
 
@@ -316,7 +318,7 @@
         <div id="benchmark-modal" class="modal hidden">
           <div class="modal-box">
             <div class="drawer-header">
-              <h2>New benchmark</h2>
+              <h2 id="benchmark-modal-title">New benchmark</h2>
               <button class="btn-close" id="close-benchmark-modal">✕</button>
             </div>
             <form id="benchmark-form" class="form-grid" novalidate>
@@ -331,6 +333,16 @@
                 </select>
                 <small class="selector-help" data-selector-help="dataset_id"></small>
               </label>
+              <div class="form-section-title">Evaluation questions</div>
+              <p class="selector-help">Add at least one question. Relevant passages should be exact text copied from your dataset for retrieval scoring.</p>
+              <div id="benchmark-questions-editor" class="form-grid"></div>
+              <div class="form-row">
+                <button type="button" class="btn btn-ghost" id="add-benchmark-question">+ Add question</button>
+                <label class="form-label">Import questions (.json or .csv)
+                  <input class="form-input" type="file" id="benchmark-import-file" accept=".json,.csv,application/json,text/csv" />
+                </label>
+              </div>
+              <small class="selector-help">JSON: an array of objects with question, answer, relevant_passages. CSV headers: question, answer, relevant_passages (separate passages with ||).</small>
               <div class="form-actions">
                 <button type="button" class="btn btn-ghost" id="cancel-benchmark">Cancel</button>
                 <button type="submit" class="btn btn-primary">Create benchmark</button>
@@ -340,6 +352,19 @@
           </div>
         </div>
       </section>
+
+      <div id="experiment-results-modal" class="modal hidden">
+        <div class="modal-box" style="max-width:1000px;">
+          <div class="drawer-header"><h2 id="experiment-results-title">Experiment results</h2><button class="btn-close" id="close-experiment-results">✕</button></div>
+          <div id="experiment-results-content"></div>
+        </div>
+      </div>
+      <div id="experiment-compare-modal" class="modal hidden">
+        <div class="modal-box" style="max-width:1000px;">
+          <div class="drawer-header"><h2>Experiment comparison</h2><button class="btn-close" id="close-experiment-compare">✕</button></div>
+          <div id="experiment-compare-content"></div>
+        </div>
+      </div>
 
       <!-- TAB: Models -->
       <section id="tab-models" class="tab-content">

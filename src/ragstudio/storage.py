@@ -67,6 +67,16 @@ def connect() -> Iterator[sqlite3.Connection]:
             CREATE INDEX IF NOT EXISTS idx_experiments_dataset_id ON experiments(dataset_id);
             """
         )
+        # Additive migrations keep existing local databases usable after upgrades.
+        experiment_columns = {row["name"] for row in connection.execute("PRAGMA table_info(experiments)")}
+        for column, declaration in {
+            "started_at": "TEXT",
+            "completed_at": "TEXT",
+            "error_message": "TEXT",
+            "results_json": "TEXT NOT NULL DEFAULT '{}'",
+        }.items():
+            if column not in experiment_columns:
+                connection.execute(f"ALTER TABLE experiments ADD COLUMN {column} {declaration}")
         yield connection
         connection.commit()
     except Exception:
