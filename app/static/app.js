@@ -273,6 +273,7 @@ async function loadDatasets() {
               <td>${d.document_count}</td>
               <td>${fmtDate(d.created_at)}</td>
               <td>
+                <button class="btn btn-ghost" data-upload-ds="${escHtml(d.id)}" title="Upload or view documents">📄 Documents</button>
                 <button class="btn btn-danger" data-delete-ds="${escHtml(d.id)}" title="Delete">🗑</button>
               </td>
             </tr>`).join('')}

@@ -626,3 +626,21 @@ select.form-input { cursor: pointer; }
   .main-content { margin-left: 0; }
   .drawer { width: 100%; }
 }
+
+
+/* ── Dataset document upload ──────────────────────────────── */
+.document-modal .modal-box { max-width: 680px; max-height: 85vh; overflow-y: auto; }
+.upload-dropzone {
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-lg);
+  padding: 22px;
+  text-align: center;
+  color: var(--text-muted);
+  background: var(--surface-2);
+}
+.upload-dropzone.dragover { border-color: var(--accent); background: var(--accent-glow); }
+.document-list { display: flex; flex-direction: column; gap: 8px; margin: 14px 0; }
+.document-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); }
+.document-meta { min-width: 0; overflow-wrap: anywhere; }
+.document-meta small { display: block; color: var(--text-muted); }
+.document-empty { color: var(--text-muted); padding: 10px 0; }

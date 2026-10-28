@@ -86,6 +86,16 @@ This repository is intentionally structured around the same single-server mental
 - Static frontend assets served by the same app
 - Pydantic models for experiment configs
 
+## Dataset uploads and persistence
+
+Datasets, uploaded documents, benchmark questions, and experiment configurations are stored in SQLite rather than process memory. The default data directory is `.data/` at the repository root. Set `RAGSTUDIO_DATA_DIR` to move the database and uploaded-file storage to a persistent volume in deployment.
+
+Open **Datasets**, create a dataset, then select **Documents** on its row to upload one or more PDF, Markdown, TXT, or HTML files. Files are limited to 10 MB each. Text and HTML are extracted directly; PDFs are extracted with pypdf. Each upload reports per-file failures so valid files in the same batch can still be saved.
+
+Deleting a dataset cascades to its documents, benchmarks, and experiments. The associated uploaded files are removed from disk. An experiment's benchmark must belong to the same dataset; invalid pairings return HTTP 409.
+
+For production deployments, mount a persistent volume at the configured data directory and back it up along with the application.
+
 ## Local development
 
 1. Create a virtual environment:

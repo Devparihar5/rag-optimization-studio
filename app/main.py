@@ -227,6 +227,15 @@ async def create_experiment(body: ExperimentCreateRequest) -> ExperimentRecord:
     return record
 
 
+@app.delete("/api/benchmarks/{benchmark_id}", status_code=204, tags=["benchmarks"])
+async def delete_benchmark(benchmark_id: str) -> None:
+    # Experiments keep their configuration and become unlinked from this benchmark.
+    with connect() as db:
+        cursor = db.execute("DELETE FROM benchmarks WHERE id=?", (benchmark_id,))
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Benchmark not found")
+
+
 @app.get("/api/experiments", response_model=list[ExperimentRecord], tags=["experiments"])
 async def list_experiments() -> list[ExperimentRecord]:
     return [ExperimentRecord(**e) for e in _experiments.values()]
