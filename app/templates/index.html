@@ -143,13 +143,19 @@
                   <input class="form-input" name="name" placeholder="Hybrid-RRF baseline" required />
                 </label>
                 <label class="form-label">
-                  Dataset ID <span class="required">*</span>
-                  <input class="form-input" name="dataset_id" placeholder="dataset-001" required />
+                  Dataset <span class="required">*</span>
+                  <select class="form-input" name="dataset_id" required aria-label="Select experiment dataset">
+                    <option value="" selected disabled>Loading datasets…</option>
+                  </select>
+                  <small class="selector-help" data-selector-help="dataset_id"></small>
                 </label>
               </div>
               <label class="form-label">
-                Benchmark ID <span class="optional">(optional)</span>
-                <input class="form-input" name="benchmark_id" placeholder="benchmark-001" />
+                Benchmark <span class="optional">(optional)</span>
+                <select class="form-input" name="benchmark_id" aria-label="Select experiment benchmark">
+                  <option value="">No benchmark (optional)</option>
+                </select>
+                <small class="selector-help" data-selector-help="benchmark_id"></small>
               </label>
 
               <div class="form-section-title">Chunking</div>
@@ -310,8 +316,11 @@
                 <input class="form-input" name="name" placeholder="QA-eval-v1" required />
               </label>
               <label class="form-label">
-                Dataset ID <span class="required">*</span>
-                <input class="form-input" name="dataset_id" placeholder="dataset-001" required />
+                Dataset <span class="required">*</span>
+                <select class="form-input" name="dataset_id" required aria-label="Select benchmark dataset">
+                  <option value="" selected disabled>Loading datasets…</option>
+                </select>
+                <small class="selector-help" data-selector-help="dataset_id"></small>
               </label>
               <div class="form-actions">
                 <button type="button" class="btn btn-ghost" id="cancel-benchmark">Cancel</button>
@@ -327,5 +336,6 @@
 
     <script src="/static/app.js"></script>
     <script src="/static/dataset-upload.js"></script>
+    <script src="/static/selectors.js"></script>
   </body>
 </html>
