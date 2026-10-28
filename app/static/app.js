@@ -146,32 +146,52 @@ async function loadExperiments() {
       <table class="data-table">
         <thead>
           <tr>
-            <th>Name</th>
-            <th>Chunking</th>
-            <th>Retrieval</th>
-            <th>Top-k</th>
-            <th>Rerank</th>
-            <th>Status</th>
-            <th>Created</th>
-            <th></th>
+            <th>Compare</th><th>Name</th><th>Chunking</th><th>Retrieval</th><th>Top-k</th>
+            <th>Rerank</th><th>Status</th><th>Created</th><th>Actions</th>
           </tr>
         </thead>
         <tbody>
           ${exps.map(e => `
             <tr>
+              <td><input type="checkbox" data-compare-exp="${escHtml(e.id)}" aria-label="Select ${escHtml(e.name)} for comparison" ${e.status !== 'done' ? 'disabled' : ''} /></td>
               <td class="name-cell">${escHtml(e.name)}</td>
               <td>${escHtml(e.config.chunking_strategy)}</td>
               <td><span class="pill pill-purple">${escHtml(e.config.retrieval_method)}</span></td>
               <td>${e.config.top_k}</td>
-              <td>${e.config.reranking ? '<span class="pill pill-green">on</span>' : '<span class="pill pill-gray">off</span>'}</td>
+              <td><span class="pill pill-gray">off</span></td>
               <td><span class="pill ${statusPill(e.status)}">${escHtml(e.status)}</span></td>
               <td>${fmtDate(e.created_at)}</td>
-              <td>
+              <td class="action-cell">
+                ${e.status === 'pending' || e.status === 'failed' ? '<button class="btn btn-primary" data-run-exp="' + escHtml(e.id) + '">Run</button>' : ''}
+                ${e.status === 'done' || e.status === 'failed' ? '<button class="btn btn-ghost" data-results-exp="' + escHtml(e.id) + '">Results</button>' : ''}
+                ${e.status === 'failed' && e.error_message ? '<small class="selector-help">' + escHtml(e.error_message) + '</small>' : ''}
                 <button class="btn btn-danger" data-delete-exp="${escHtml(e.id)}" title="Delete">🗑</button>
               </td>
             </tr>`).join('')}
         </tbody>
       </table>`;
+
+    container.querySelectorAll('[data-run-exp]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        showStatus('experiment-action-status', 'Running experiment… This can take time depending on dataset size and provider.', '');
+        try {
+          await api('POST', `/experiments/${btn.dataset.runExp}/run`);
+          showStatus('experiment-action-status', 'Experiment completed.', 'success');
+          await loadExperiments();
+          await loadOverview();
+          await openExperimentResults(btn.dataset.runExp);
+        } catch (err) {
+          showStatus('experiment-action-status', `Experiment failed: ${err.message}`, 'error');
+          await loadExperiments();
+          await loadOverview();
+        }
+      });
+    });
+    container.querySelectorAll('[data-results-exp]').forEach(btn => {
+      btn.addEventListener('click', () => openExperimentResults(btn.dataset.resultsExp));
+    });
+    container.querySelectorAll('[data-compare-exp]').forEach(input => input.addEventListener('change', updateCompareButton));
 
     // Delete buttons
     container.querySelectorAll('[data-delete-exp]').forEach(btn => {
@@ -348,18 +368,26 @@ async function loadBenchmarks() {
     container.innerHTML = `
       <table class="data-table">
         <thead>
-          <tr><th>Name</th><th>Dataset ID</th><th>Questions</th><th>Created</th></tr>
+          <tr><th>Name</th><th>Dataset</th><th>Questions</th><th>Created</th><th>Actions</th></tr>
         </thead>
         <tbody>
           ${benchmarks.map(b => `
             <tr>
               <td class="name-cell">${escHtml(b.name)}</td>
-              <td>${escHtml(b.dataset_id)}</td>
+              <td>${escHtml(b.dataset_id.slice(0, 8))}</td>
               <td>${b.question_count}</td>
               <td>${fmtDate(b.created_at)}</td>
+              <td><button class="btn btn-ghost" data-edit-benchmark="${escHtml(b.id)}">Edit questions</button>
+              <button class="btn btn-danger" data-delete-benchmark="${escHtml(b.id)}">Delete</button></td>
             </tr>`).join('')}
         </tbody>
       </table>`;
+    container.querySelectorAll('[data-edit-benchmark]').forEach(btn => btn.addEventListener('click', () => editBenchmark(btn.dataset.editBenchmark)));
+    container.querySelectorAll('[data-delete-benchmark]').forEach(btn => btn.addEventListener('click', async () => {
+      if (!confirm('Delete this benchmark? Existing experiments will be unlinked.')) return;
+      try { await api('DELETE', `/benchmarks/${btn.dataset.deleteBenchmark}`); await loadBenchmarks(); }
+      catch (err) { alert(err.message); }
+    }));
   } catch (err) {
     setHtml('benchmarks-list', `<div class="empty-state"><p style="color:var(--red)">Error: ${escHtml(err.message)}</p></div>`);
   }
