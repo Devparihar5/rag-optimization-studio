@@ -145,3 +145,15 @@ def test_embedding_model_cannot_save_model_not_discovered(tmp_path: Path, monkey
         "model_id": "gpt-4o",
     })
     assert response.status_code == 422
+
+
+def test_experiment_requires_explicit_generation_and_embedding_models(tmp_path: Path, monkeypatch) -> None:
+    client, _ = _client(tmp_path, monkeypatch)
+    response = client.post("/api/experiments", json={
+        "name": "Missing model selection",
+        "dataset_id": "dataset-does-not-matter-for-validation",
+    })
+    assert response.status_code == 422
+    details = response.json()["detail"]
+    missing_fields = {item["loc"][-1] for item in details}
+    assert {"generation_model", "embedding_model"}.issubset(missing_fields)
