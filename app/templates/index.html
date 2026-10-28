@@ -29,6 +29,9 @@
         <a href="#" class="nav-item" data-tab="benchmarks">
           <span class="nav-icon">🎯</span> Benchmarks
         </a>
+        <a href="#" class="nav-item" data-tab="models">
+          <span class="nav-icon">🤖</span> Models
+        </a>
       </nav>
       <div class="sidebar-footer">
         <div class="version-badge">MVP v0.1</div>
@@ -218,7 +221,10 @@
                 </label>
                 <label class="form-label">
                   Generation model
-                  <input class="form-input" name="generation_model" value="gpt-4o-mini" />
+                  <select class="form-input" name="generation_model" required aria-label="Select configured generation model">
+                    <option value="" selected disabled>Configure a model first…</option>
+                  </select>
+                  <small class="selector-help" id="generation-model-help">Add an online or local model from the Models page first.</small>
                 </label>
               </div>
 
@@ -332,10 +338,70 @@
         </div>
       </section>
 
+      <!-- TAB: Models -->
+      <section id="tab-models" class="tab-content">
+        <div class="models-intro">
+          <h2>Model providers</h2>
+          <p>Connect an online provider with an API key, or discover models already installed in local Ollama. API keys are encrypted before they are saved and are never returned to the browser.</p>
+        </div>
+
+        <div class="card model-setup-card">
+          <div class="card-header"><h2>Add a model</h2></div>
+          <form id="model-provider-form" class="form-grid">
+            <div class="form-row">
+              <label class="form-label">
+                Provider
+                <select class="form-input" id="model-provider" name="provider">
+                  <option value="openai">OpenAI</option>
+                  <option value="gemini">Google Gemini</option>
+                  <option value="ollama">Ollama (local)</option>
+                </select>
+              </label>
+              <label class="form-label" id="model-api-key-wrap">
+                API key
+                <input class="form-input" id="model-api-key" name="api_key" type="password" autocomplete="new-password" placeholder="Paste provider API key" />
+                <small class="selector-help">The key is sent to the provider for validation and encrypted before saving.</small>
+              </label>
+            </div>
+            <label class="form-label hidden" id="model-base-url-wrap">
+              Ollama URL
+              <input class="form-input" id="model-base-url" name="base_url" value="http://localhost:11434" placeholder="http://localhost:11434" />
+              <small class="selector-help">Ollama must be running locally and have at least one model installed.</small>
+            </label>
+            <div class="form-actions">
+              <button type="button" class="btn btn-primary" id="discover-models">Verify connection &amp; load models</button>
+            </div>
+            <div id="model-discovery-status" class="form-status" role="status" aria-live="polite"></div>
+            <div class="form-row hidden" id="model-choice-wrap">
+              <label class="form-label">
+                Available models
+                <select class="form-input" id="discovered-model" name="model_id" required>
+                  <option value="">Verify provider first…</option>
+                </select>
+              </label>
+              <div class="form-label model-save-wrap">
+                <span>Ready to use</span>
+                <button type="submit" class="btn btn-primary" id="save-model" disabled>Add selected model</button>
+              </div>
+            </div>
+          </form>
+        </div>
+
+        <div class="card" style="margin-top:16px;">
+          <div class="card-header">
+            <h2>Configured models</h2>
+            <button class="btn btn-ghost" id="refresh-models" type="button">Refresh</button>
+          </div>
+          <div id="configured-models-list">
+            <div class="empty-state"><div class="empty-icon">🤖</div><p>No models configured yet.</p></div>
+          </div>
+        </div>
+      </section>
     </div><!-- /main-content -->
 
     <script src="/static/app.js"></script>
     <script src="/static/dataset-upload.js"></script>
     <script src="/static/selectors.js"></script>
+    <script src="/static/models.js"></script>
   </body>
 </html>
