@@ -14,6 +14,7 @@ from urllib.request import Request, urlopen
 from cryptography.fernet import Fernet, InvalidToken
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 try:
     from ragstudio.storage import connect, data_dir
@@ -298,7 +299,7 @@ def public_model(row: Any) -> dict[str, Any]:
 
 @router.post("/api/models/discover")
 async def model_discover(body: ModelDiscoveryRequest) -> dict[str, Any]:
-    models = discover_models(body.provider, body.api_key, body.base_url)
+    models = await run_in_threadpool(discover_models, body.provider, body.api_key, body.base_url)
     return {"provider": body.provider, "models": models, "count": len(models)}
 
 
@@ -312,7 +313,7 @@ async def list_configured_models() -> list[dict[str, Any]]:
 
 @router.post("/api/models", status_code=201)
 async def save_configured_model(body: ModelSaveRequest) -> dict[str, Any]:
-    models = discover_models(body.provider, body.api_key, body.base_url)
+    models = await run_in_threadpool(discover_models, body.provider, body.api_key, body.base_url)
     chosen = next((item for item in models if item["id"] == body.model_id), None)
     if chosen is None:
         raise HTTPException(
@@ -370,7 +371,7 @@ def public_embedding_model(row: Any) -> dict[str, Any]:
 
 @router.post("/api/embedding-models/discover")
 async def embedding_model_discover(body: ModelDiscoveryRequest) -> dict[str, Any]:
-    models = discover_embedding_models(body.provider, body.api_key, body.base_url)
+    models = await run_in_threadpool(discover_embedding_models, body.provider, body.api_key, body.base_url)
     return {"provider": body.provider, "models": models, "count": len(models)}
 
 
@@ -384,7 +385,7 @@ async def list_embedding_models() -> list[dict[str, Any]]:
 
 @router.post("/api/embedding-models", status_code=201)
 async def save_embedding_model(body: EmbeddingModelSaveRequest) -> dict[str, Any]:
-    models = discover_embedding_models(body.provider, body.api_key, body.base_url)
+    models = await run_in_threadpool(discover_embedding_models, body.provider, body.api_key, body.base_url)
     chosen = next((item for item in models if item["id"] == body.model_id), None)
     if chosen is None:
         raise HTTPException(
