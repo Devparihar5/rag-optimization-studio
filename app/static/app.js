@@ -393,37 +393,257 @@ async function loadBenchmarks() {
   }
 }
 
-// Benchmark modal
+// Benchmark question editor, JSON/CSV import, and edit flow.
 const benchmarkModal = document.getElementById('benchmark-modal');
 const benchmarkForm  = document.getElementById('benchmark-form');
+const benchmarkQuestionEditor = document.getElementById('benchmark-questions-editor');
+const benchmarkImportFile = document.getElementById('benchmark-import-file');
+const benchmarkModalTitle = document.getElementById('benchmark-modal-title');
+let editingBenchmarkId = null;
 
-function openBenchmarkModal()  { benchmarkModal.classList.remove('hidden'); }
+function addBenchmarkQuestion(question = {}) {
+  const row = document.createElement('div');
+  row.className = 'card benchmark-question-row';
+  row.style.padding = '14px';
+  row.innerHTML = '<div class="form-row">' +
+    '<label class="form-label">Question <span class="required">*</span><textarea class="form-input" data-question rows="2" maxlength="5000" required></textarea></label>' +
+    '<label class="form-label">Expected answer<textarea class="form-input" data-answer rows="2"></textarea></label></div>' +
+    '<label class="form-label">Relevant passages (one per line)<textarea class="form-input" data-passages rows="2" placeholder="Paste exact relevant text from the dataset"></textarea></label>' +
+    '<div class="form-actions"><button type="button" class="btn btn-danger" data-remove-question>Remove question</button></div>';
+  row.querySelector('[data-question]').value = question.question || '';
+  row.querySelector('[data-answer]').value = question.answer || question.expected_answer || '';
+  const passages = question.relevant_passages || [];
+  row.querySelector('[data-passages]').value = Array.isArray(passages) ? passages.join('\n') : String(passages);
+  row.querySelector('[data-remove-question]').addEventListener('click', () => {
+    row.remove();
+    if (!benchmarkQuestionEditor.children.length) addBenchmarkQuestion();
+  });
+  benchmarkQuestionEditor.appendChild(row);
+}
+
+function readBenchmarkQuestions() {
+  return [...benchmarkQuestionEditor.querySelectorAll('.benchmark-question-row')].map((row, index) => {
+    const question = row.querySelector('[data-question]').value.trim();
+    const answer = row.querySelector('[data-answer]').value.trim();
+    const relevant_passages = row.querySelector('[data-passages]').value.split(/\r?\n/).map(value => value.trim()).filter(Boolean);
+    if (!question) throw new Error('Question ' + (index + 1) + ' is empty.');
+    return { question, answer: answer || null, relevant_passages };
+  });
+}
+
+function parseCsv(text) {
+  const rows = [];
+  let row = [], field = '', quoted = false;
+  for (let index = 0; index < text.length; index++) {
+    const char = text[index];
+    if (quoted && char === '"' && text[index + 1] === '"') { field += '"'; index++; }
+    else if (char === '"') quoted = !quoted;
+    else if (char === ',' && !quoted) { row.push(field); field = ''; }
+    else if ((char === '\n' || char === '\r') && !quoted) {
+      if (char === '\r' && text[index + 1] === '\n') index++;
+      row.push(field); field = '';
+      if (row.some(value => value.trim())) rows.push(row);
+      row = [];
+    } else field += char;
+  }
+  row.push(field);
+  if (row.some(value => value.trim())) rows.push(row);
+  if (quoted) throw new Error('CSV has an unclosed quoted field.');
+  if (rows.length < 2) throw new Error('CSV must contain a header and at least one data row.');
+  const headers = rows[0].map(value => value.trim().toLowerCase());
+  if (!headers.includes('question')) throw new Error('CSV header must include question.');
+  return rows.slice(1).map((values, index) => {
+    const item = Object.fromEntries(headers.map((header, i) => [header, values[i] || '']));
+    if (!item.question.trim()) throw new Error('CSV row ' + (index + 2) + ': question is empty.');
+    return {
+      question: item.question.trim(),
+      answer: (item.answer || item.expected_answer || '').trim() || null,
+      relevant_passages: (item.relevant_passages || '').split('||').map(value => value.trim()).filter(Boolean),
+    };
+  });
+}
+
+function openBenchmarkModal() {
+  editingBenchmarkId = null;
+  benchmarkForm.reset();
+  benchmarkForm.querySelector('[name="dataset_id"]').disabled = false;
+  benchmarkModalTitle.textContent = 'New benchmark';
+  benchmarkQuestionEditor.replaceChildren();
+  addBenchmarkQuestion();
+  benchmarkModal.classList.remove('hidden');
+}
+
+async function editBenchmark(id) {
+  try {
+    const benchmark = await api('GET', '/benchmarks/' + id);
+    editingBenchmarkId = id;
+    benchmarkForm.reset();
+    benchmarkForm.querySelector('[name="name"]').value = benchmark.name;
+    const datasetSelect = benchmarkForm.querySelector('[name="dataset_id"]');
+    datasetSelect.value = benchmark.dataset_id;
+    datasetSelect.disabled = true;
+    benchmarkModalTitle.textContent = 'Edit benchmark questions';
+    benchmarkQuestionEditor.replaceChildren();
+    (benchmark.questions || []).forEach(question => addBenchmarkQuestion(question));
+    if (!benchmark.questions?.length) addBenchmarkQuestion();
+    benchmarkModal.classList.remove('hidden');
+  } catch (err) { alert(err.message); }
+}
+
 function closeBenchmarkModal() {
   benchmarkModal.classList.add('hidden');
   benchmarkForm.reset();
-  const s = document.getElementById('benchmark-status');
-  if (s) { s.textContent = ''; s.className = 'form-status'; }
+  benchmarkForm.querySelector('[name="dataset_id"]').disabled = false;
+  benchmarkQuestionEditor.replaceChildren();
+  editingBenchmarkId = null;
+  const status = document.getElementById('benchmark-status');
+  if (status) { status.textContent = ''; status.className = 'form-status'; }
 }
 
 document.getElementById('btn-new-benchmark').addEventListener('click', openBenchmarkModal);
 document.getElementById('close-benchmark-modal').addEventListener('click', closeBenchmarkModal);
 document.getElementById('cancel-benchmark').addEventListener('click', closeBenchmarkModal);
+document.getElementById('add-benchmark-question').addEventListener('click', () => addBenchmarkQuestion());
 benchmarkModal.addEventListener('click', e => { if (e.target === benchmarkModal) closeBenchmarkModal(); });
+
+benchmarkImportFile.addEventListener('change', async () => {
+  const file = benchmarkImportFile.files?.[0];
+  if (!file) return;
+  try {
+    const text = await file.text();
+    let questions;
+    if (file.name.toLowerCase().endsWith('.json')) {
+      const parsed = JSON.parse(text);
+      questions = Array.isArray(parsed) ? parsed : parsed.questions;
+      if (!Array.isArray(questions)) throw new Error('JSON must be an array of question objects or an object containing a questions array.');
+      questions = questions.map((item, index) => {
+        if (!item || typeof item.question !== 'string' || !item.question.trim()) throw new Error('JSON row ' + (index + 1) + ': question must be a non-empty string.');
+        return { question: item.question.trim(), answer: item.answer ?? item.expected_answer ?? null, relevant_passages: item.relevant_passages ?? [] };
+      });
+    } else questions = parseCsv(text);
+    if (!questions.length) throw new Error('Import contains no questions.');
+    benchmarkQuestionEditor.replaceChildren();
+    questions.forEach(question => addBenchmarkQuestion(question));
+    showStatus('benchmark-status', 'Loaded ' + questions.length + ' questions. Review them and save the benchmark.', 'success');
+  } catch (err) {
+    showStatus('benchmark-status', 'Import error: ' + err.message, 'error');
+  } finally {
+    benchmarkImportFile.value = '';
+  }
+});
 
 benchmarkForm.addEventListener('submit', async e => {
   e.preventDefault();
-  const fd = new FormData(benchmarkForm);
-  const payload = { name: fd.get('name'), dataset_id: fd.get('dataset_id'), questions: [] };
   try {
-    await api('POST', '/benchmarks', payload);
-    showStatus('benchmark-status', '✓ Benchmark created!', 'success');
-    loadBenchmarks();
-    loadOverview();
-    setTimeout(closeBenchmarkModal, 800);
+    const questions = readBenchmarkQuestions();
+    if (!questions.length) throw new Error('Add at least one question.');
+    const payload = {
+      name: benchmarkForm.querySelector('[name="name"]').value.trim(),
+      dataset_id: benchmarkForm.querySelector('[name="dataset_id"]').value,
+      questions,
+    };
+    if (!payload.name || !payload.dataset_id) throw new Error('Name and dataset are required.');
+    if (editingBenchmarkId) {
+      await api('PUT', '/benchmarks/' + editingBenchmarkId, { name: payload.name, questions });
+      showStatus('benchmark-status', '✓ Benchmark updated!', 'success');
+    } else {
+      await api('POST', '/benchmarks', payload);
+      showStatus('benchmark-status', '✓ Benchmark created!', 'success');
+    }
+    await loadBenchmarks();
+    await loadOverview();
+    setTimeout(closeBenchmarkModal, 700);
   } catch (err) {
-    showStatus('benchmark-status', `✗ ${err.message}`, 'error');
+    showStatus('benchmark-status', '✗ ' + err.message, 'error');
   }
 });
+
+// Result detail and comparison views.
+const experimentResultsModal = document.getElementById('experiment-results-modal');
+const experimentCompareModal = document.getElementById('experiment-compare-modal');
+const metricLabels = {
+  precision_at_k: 'Precision@k', recall_at_k: 'Recall@k', mrr: 'MRR',
+  ndcg_at_k: 'NDCG@k', average_latency_ms: 'Average latency (ms)',
+  total_tokens: 'Total tokens', cost_usd: 'Cost (USD)',
+};
+function metricValue(value, key) {
+  if (value === null || value === undefined) return 'Unavailable';
+  if (key === 'average_latency_ms') return Number(value).toFixed(2);
+  return typeof value === 'number' ? Number(value).toFixed(4).replace(/\.?0+$/, '') : escHtml(value);
+}
+async function openExperimentResults(id) {
+  const title = document.getElementById('experiment-results-title');
+  const content = document.getElementById('experiment-results-content');
+  title.textContent = 'Experiment results';
+  content.innerHTML = '<p class="selector-help">Loading results…</p>';
+  experimentResultsModal.classList.remove('hidden');
+  try {
+    const response = await api('GET', '/experiments/' + id + '/results');
+    if (!response.results) {
+      content.innerHTML = '<p><strong>Status:</strong> ' + escHtml(response.status) + '</p><p>' + escHtml(response.error || 'Results are not available yet.') + '</p>';
+      return;
+    }
+    const result = response.results;
+    title.textContent = 'Results: ' + id.slice(0, 8);
+    const summary = result.summary || {};
+    const summaryRows = Object.entries(metricLabels).map(([key, label]) =>
+      '<tr><th>' + escHtml(label) + '</th><td>' + metricValue(summary[key], key) + '</td></tr>'
+    ).join('');
+    const cases = (result.questions || []).map((item, index) =>
+      '<div class="card" style="padding:14px;margin-top:12px;">' +
+      '<h3>Question ' + (index + 1) + ': ' + escHtml(item.question) + '</h3>' +
+      '<p><strong>Expected answer:</strong> ' + escHtml(item.expected_answer || 'Not provided') + '</p>' +
+      '<p><strong>Generated answer:</strong> ' + escHtml(item.generated_answer || 'No answer returned') + '</p>' +
+      '<p><strong>Latency:</strong> ' + metricValue(item.latency_ms, 'average_latency_ms') + ' ms · <strong>Cost:</strong> Unavailable</p>' +
+      '<p><strong>Retrieval metrics:</strong> ' + Object.entries(item.metrics || {}).map(([key, value]) => escHtml(metricLabels[key] || key) + ': ' + metricValue(value, key)).join(' · ') + '</p>' +
+      '<details><summary>Retrieved evidence (' + (item.retrieved_evidence || []).length + ')</summary>' +
+      (item.retrieved_evidence || []).map(evidence =>
+        '<div style="padding:8px;border-top:1px solid var(--border);"><p><strong>' + escHtml(evidence.filename) +
+        ' · chunk ' + (evidence.chunk_index + 1) + ' · rank ' + evidence.rank + '</strong></p><p>' + escHtml(evidence.text) + '</p></div>'
+      ).join('') + '</details></div>'
+    ).join('');
+    content.innerHTML = '<p>Chunks: ' + escHtml(result.chunk_count) + ' · Questions: ' + escHtml(summary.evaluated_questions) +
+      ' · Questions with relevance labels: ' + escHtml(summary.questions_with_relevance_labels) + '</p>' +
+      '<table class="data-table"><tbody>' + summaryRows + '</tbody></table>' +
+      '<p class="selector-help" style="margin-top:8px;">' + escHtml(result.metric_definitions?.precision_at_k || '') +
+      ' Cost is unavailable unless provider pricing is configured.</p>' + cases;
+  } catch (err) {
+    content.innerHTML = '<p class="form-status error">' + escHtml(err.message) + '</p>';
+  }
+}
+
+function updateCompareButton() {
+  const selected = document.querySelectorAll('[data-compare-exp]:checked').length;
+  const button = document.getElementById('btn-compare-experiments');
+  if (button) {
+    button.textContent = 'Compare selected (' + selected + ')';
+    button.disabled = selected < 2;
+  }
+}
+document.getElementById('btn-compare-experiments').addEventListener('click', async () => {
+  const experiment_ids = [...document.querySelectorAll('[data-compare-exp]:checked')].map(input => input.dataset.compareExp);
+  const content = document.getElementById('experiment-compare-content');
+  content.innerHTML = '<p class="selector-help">Comparing completed experiments…</p>';
+  experimentCompareModal.classList.remove('hidden');
+  try {
+    const result = await api('POST', '/experiments/compare', { experiment_ids });
+    const metrics = ['precision_at_k', 'recall_at_k', 'mrr', 'ndcg_at_k', 'average_latency_ms'];
+    const rows = metrics.map(metric => '<tr><th>' + escHtml(metricLabels[metric]) + '</th>' +
+      result.experiments.map(exp => '<td>' + metricValue(exp.summary?.[metric], metric) + '</td>').join('') + '</tr>').join('');
+    content.innerHTML = '<p>Only runs on the same dataset and benchmark can be compared. Deltas below are relative to the first selected run.</p>' +
+      '<table class="data-table"><thead><tr><th>Metric</th>' + result.experiments.map(exp => '<th>' + escHtml(exp.name) + '</th>').join('') +
+      '</tr></thead><tbody>' + rows + '</tbody></table><h3 style="margin-top:16px;">Configuration differences</h3>' +
+      '<pre style="white-space:pre-wrap;overflow-wrap:anywhere;">' + escHtml(JSON.stringify(result.configuration_differences, null, 2)) +
+      '</pre><h3 style="margin-top:16px;">Metric deltas vs first run</h3><pre style="white-space:pre-wrap;overflow-wrap:anywhere;">' +
+      escHtml(JSON.stringify(result.metric_deltas_vs_first, null, 2)) + '</pre>';
+  } catch (err) {
+    content.innerHTML = '<p class="form-status error">' + escHtml(err.message) + '</p>';
+  }
+});
+document.getElementById('close-experiment-results').addEventListener('click', () => experimentResultsModal.classList.add('hidden'));
+document.getElementById('close-experiment-compare').addEventListener('click', () => experimentCompareModal.classList.add('hidden'));
+experimentResultsModal.addEventListener('click', e => { if (e.target === experimentResultsModal) experimentResultsModal.classList.add('hidden'); });
+experimentCompareModal.addEventListener('click', e => { if (e.target === experimentCompareModal) experimentCompareModal.classList.add('hidden'); });
 
 // ── Keyboard shortcuts ────────────────────────────────────────
 document.addEventListener('keydown', e => {
