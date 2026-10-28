@@ -139,11 +139,12 @@ def discover_models(provider: Provider, api_key: str | None, base_url: str | Non
         models = []
         page_token = None
         for _ in range(10):
-            params = {"key": api_key.strip(), "pageSize": "100"}
+            params = {"pageSize": "100"}
             if page_token:
                 params["pageToken"] = page_token
             payload = _json_request(
-                "https://generativelanguage.googleapis.com/v1beta/models?" + urlencode(params)
+                "https://generativelanguage.googleapis.com/v1beta/models?" + urlencode(params),
+                {"x-goog-api-key": api_key.strip()},
             )
             for item in payload.get("models", []):
                 if not isinstance(item, dict):
