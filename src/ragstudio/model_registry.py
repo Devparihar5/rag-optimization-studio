@@ -136,18 +136,27 @@ def discover_models(provider: Provider, api_key: str | None, base_url: str | Non
     if provider == "gemini":
         if not api_key or not api_key.strip():
             raise HTTPException(status_code=422, detail="Enter a Gemini API key first.")
-        url = "https://generativelanguage.googleapis.com/v1beta/models?" + urlencode({"key": api_key.strip()})
-        payload = _json_request(url)
         models = []
-        for item in payload.get("models", []):
-            if not isinstance(item, dict):
-                continue
-            methods = item.get("supportedGenerationMethods", [])
-            name = item.get("name", "")
-            if isinstance(name, str) and "generateContent" in methods:
-                model_id = name.removeprefix("models/")
-                models.append({"id": model_id, "name": item.get("displayName") or model_id})
-        return sorted(models, key=lambda item: item["id"])
+        page_token = None
+        for _ in range(10):
+            params = {"key": api_key.strip(), "pageSize": "100"}
+            if page_token:
+                params["pageToken"] = page_token
+            payload = _json_request(
+                "https://generativelanguage.googleapis.com/v1beta/models?" + urlencode(params)
+            )
+            for item in payload.get("models", []):
+                if not isinstance(item, dict):
+                    continue
+                methods = item.get("supportedGenerationMethods", [])
+                name = item.get("name", "")
+                if isinstance(name, str) and "generateContent" in methods:
+                    model_id = name.removeprefix("models/")
+                    models.append({"id": model_id, "name": item.get("displayName") or model_id})
+            page_token = payload.get("nextPageToken")
+            if not page_token:
+                break
+        return sorted({item["id"]: item for item in models}.values(), key=lambda item: item["id"])
     if provider == "ollama":
         url = _ollama_url(base_url)
         payload = _json_request(f"{url}/api/tags")
