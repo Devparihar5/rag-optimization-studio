@@ -30,7 +30,7 @@
     experimentForm, 'dataset_id', 'Select a dataset', true
   );
   const experimentBenchmark = replaceWithSelect(
-    experimentForm, 'benchmark_id', 'No benchmark (optional)'
+    experimentForm, 'benchmark_id', 'Choose a benchmark', true
   );
   const benchmarkDataset = replaceWithSelect(
     benchmarkForm, 'dataset_id', 'Select a dataset', true
@@ -84,13 +84,14 @@
     addOption(
       select,
       '',
-      matching.length ? 'No benchmark (optional)' : 'No benchmark for this dataset'
+      matching.length ? 'Choose a benchmark…' : 'No benchmark for this dataset',
+      true
     );
     matching.forEach(benchmark => addOption(select, benchmark.id, optionLabel(benchmark)));
     select.disabled = false;
     select.value = matching.some(item => item.id === selectedId) ? selectedId : '';
     setHelp(select, datasetId && !matching.length
-      ? 'You can save without a benchmark, or create one for this dataset.'
+      ? 'Create a benchmark with questions for this dataset before running an experiment.'
       : '');
   }
 
