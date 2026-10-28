@@ -215,6 +215,9 @@ class ExperimentRecord(BaseModel):
     config: ExperimentConfig
     status: str
     created_at: str
+    started_at: str | None = None
+    completed_at: str | None = None
+    error_message: str | None = None
     summary: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -232,6 +235,9 @@ def experiment_record(row: Any) -> dict[str, Any]:
         "benchmark_id": row["benchmark_id"],
         "config": json_load(row["config_json"], {}),
         "status": row["status"], "created_at": row["created_at"],
+        "started_at": row["started_at"] if "started_at" in row.keys() else None,
+        "completed_at": row["completed_at"] if "completed_at" in row.keys() else None,
+        "error_message": row["error_message"] if "error_message" in row.keys() else None,
         "summary": json_load(row["summary_json"], {}),
     }
 
@@ -411,6 +417,21 @@ async def list_benchmarks() -> list[dict[str, Any]]:
     return [benchmark_record(row) for row in rows]
 
 
+@app.put("/api/benchmarks/{benchmark_id}", response_model=BenchmarkRecord, tags=["benchmarks"])
+async def update_benchmark(benchmark_id: str, body: BenchmarkUpdateRequest) -> dict[str, Any]:
+    with connect() as db:
+        row = db.execute("SELECT * FROM benchmarks WHERE id=?", (benchmark_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Benchmark not found")
+        questions = [question.model_dump() for question in body.questions]
+        db.execute(
+            "UPDATE benchmarks SET name=?,questions_json=? WHERE id=?",
+            (body.name, json.dumps(questions), benchmark_id),
+        )
+        updated = db.execute("SELECT * FROM benchmarks WHERE id=?", (benchmark_id,)).fetchone()
+    return benchmark_record(updated)
+
+
 @app.get("/api/benchmarks/{benchmark_id}", tags=["benchmarks"])
 async def get_benchmark(benchmark_id: str) -> dict[str, Any]:
     with connect() as db:
@@ -429,6 +450,11 @@ async def create_experiment(body: ExperimentCreateRequest) -> dict[str, Any]:
     with connect() as db:
         if db.execute("SELECT 1 FROM datasets WHERE id=?", (body.dataset_id,)).fetchone() is None:
             raise HTTPException(status_code=404, detail="Dataset not found")
+        # A saved experiment must point to real configured models, never raw model names.
+        get_model_runtime_config(body.config.generation_model)
+        get_embedding_model_runtime_config(body.config.embedding_model)
+        if body.config.overlap >= body.config.chunk_size:
+            raise HTTPException(status_code=422, detail="Overlap must be smaller than chunk size.")
         if body.benchmark_id:
             benchmark = db.execute(
                 "SELECT dataset_id FROM benchmarks WHERE id=?", (body.benchmark_id,)
