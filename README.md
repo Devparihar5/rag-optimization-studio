@@ -105,7 +105,7 @@ Open **Models** to configure generation and embedding models before creating an 
 - Select configured generation and embedding models in the experiment form. The selectors submit the saved configuration IDs instead of arbitrary model names.
 - Provider API keys are encrypted before being stored in SQLite. The encryption key is kept in `.data/.model_encryption_key` with restrictive file permissions and is never returned by the API. Back up this file with the database if you need to preserve access to saved credentials. Protect the entire data directory and do not commit it.
 
-Model discovery validates credentials and lists compatible models. Experiment execution is a separate roadmap item; configuring a model does not itself run an inference, create embeddings, or execute a benchmark.
+Model discovery validates credentials and lists compatible models. After creating a benchmark and uploading dataset documents, select the configured models in an experiment and use **Run** to execute retrieval, generation, and evaluation. Reranking and query rewriting remain unavailable until implemented.
 
 ## Benchmarks, retrieval, and experiment execution
 
