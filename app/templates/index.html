@@ -103,7 +103,7 @@
             </div>
             <ul class="tip-list">
               <li>Start with <strong>Hybrid RRF</strong> retrieval as your baseline</li>
-              <li>Enable <strong>reranking</strong> to boost precision at no latency cost</li>
+              <li>Use a labelled benchmark to measure retrieval quality</li>
               <li>Test <strong>chunk sizes</strong> between 256–1024 tokens</li>
               <li>Use <strong>sentence-aware</strong> chunking for conversational corpora</li>
               <li>Compare <strong>MRR</strong> and <strong>NDCG@k</strong> across runs</li>
@@ -116,6 +116,8 @@
       <section id="tab-experiments" class="tab-content">
         <div class="toolbar">
           <button class="btn btn-primary" id="btn-new-experiment">+ New experiment</button>
+          <button class="btn btn-ghost" id="btn-compare-experiments" type="button" disabled>Compare selected (0)</button>
+          <span id="experiment-action-status" class="form-status" role="status" aria-live="polite"></span>
         </div>
 
         <div class="card" style="margin-top:16px;">
