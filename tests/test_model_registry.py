@@ -249,6 +249,26 @@ def test_experiment_execution_persists_real_results_and_failure(tmp_path: Path, 
     assert results["summary"]["mrr"] == 1.0
     assert results["summary"]["cost_usd"] is None
 
+    second = client.post("/api/experiments", json={
+        "name": "bm25 comparison run", "dataset_id": dataset["id"], "benchmark_id": benchmark["id"], "config": config,
+    }).json()
+    assert client.post(f"/api/experiments/{second['id']}/run").status_code == 200
+    comparison = client.post("/api/experiments/compare", json={
+        "experiment_ids": [experiment_id, second["id"]],
+    })
+    assert comparison.status_code == 200
+
+    # Editing the same benchmark ID must not make different evaluation sets comparable.
+    assert client.put(f"/api/benchmarks/{benchmark['id']}", json={
+        "name": "sky QA revised",
+        "questions": [{"question": "Which planet do we live on?", "answer": "Earth.", "relevant_passages": ["The sky is blue."]}],
+    }).status_code == 200
+    assert client.post(f"/api/experiments/{second['id']}/run").status_code == 200
+    incompatible = client.post("/api/experiments/compare", json={
+        "experiment_ids": [experiment_id, second["id"]],
+    })
+    assert incompatible.status_code == 409
+
     monkeypatch.setattr(main, "_generate_answer", lambda *args: (_ for _ in ()).throw(RuntimeError("mock provider failure")))
     failed = client.post(f"/api/experiments/{experiment_id}/run")
     assert failed.status_code == 502
