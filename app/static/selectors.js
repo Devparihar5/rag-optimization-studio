@@ -46,6 +46,13 @@
     select.appendChild(option);
   }
 
+  function optionLabel(item) {
+    const name = item.name || 'Unnamed';
+    const id = String(item.id || '');
+    // Names are not unique in the API, so show a stable ID prefix as well.
+    return id ? `${name} (${id.slice(0, 8)})` : name;
+  }
+
   async function getJson(path) {
     const response = await fetch(`/api${path}`);
     const payload = await response.json().catch(() => ({}));
@@ -64,7 +71,7 @@
     select.replaceChildren();
     addOption(select, '', datasets.length ? 'Choose a dataset…' : 'No datasets available', true);
     datasets.forEach(dataset => {
-      addOption(select, dataset.id, dataset.name);
+      addOption(select, dataset.id, optionLabel(dataset));
     });
     select.disabled = datasets.length === 0;
     select.value = datasets.some(dataset => dataset.id === selectedId) ? selectedId : '';
@@ -79,7 +86,7 @@
       '',
       matching.length ? 'No benchmark (optional)' : 'No benchmark for this dataset'
     );
-    matching.forEach(benchmark => addOption(select, benchmark.id, benchmark.name));
+    matching.forEach(benchmark => addOption(select, benchmark.id, optionLabel(benchmark)));
     select.disabled = false;
     select.value = matching.some(item => item.id === selectedId) ? selectedId : '';
     setHelp(select, datasetId && !matching.length
