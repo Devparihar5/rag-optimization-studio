@@ -2,9 +2,15 @@ from __future__ import annotations
 
 import io
 import json
+import math
 import re
+import time
 import uuid
+from collections import Counter
 from datetime import datetime, timezone
+from urllib.error import HTTPError, URLError
+from urllib.parse import quote, urlencode
+from urllib.request import Request, urlopen
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
@@ -13,16 +19,25 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 
 try:
     from ragstudio.storage import connect, data_dir
-    from ragstudio.model_registry import router as model_router
+    from ragstudio.model_registry import (
+        router as model_router,
+        get_model_runtime_config,
+        get_embedding_model_runtime_config,
+    )
 except ModuleNotFoundError:
     # Supports running directly from a source checkout without an editable install.
     from src.ragstudio.storage import connect, data_dir
-    from src.ragstudio.model_registry import router as model_router
+    from src.ragstudio.model_registry import (
+        router as model_router,
+        get_model_runtime_config,
+        get_embedding_model_runtime_config,
+    )
 
 app = FastAPI(
     title="RAG Optimization Studio",
@@ -137,7 +152,16 @@ class BenchmarkQuestion(BaseModel):
 class BenchmarkCreateRequest(BaseModel):
     name: str = Field(min_length=3, max_length=200)
     dataset_id: str
-    questions: list[BenchmarkQuestion] = Field(default_factory=list)
+    questions: list[BenchmarkQuestion] = Field(min_length=1, max_length=1000)
+
+
+class BenchmarkUpdateRequest(BaseModel):
+    name: str = Field(min_length=3, max_length=200)
+    questions: list[BenchmarkQuestion] = Field(min_length=1, max_length=1000)
+
+
+class ExperimentCompareRequest(BaseModel):
+    experiment_ids: list[str] = Field(min_length=2, max_length=10)
 
 
 class BenchmarkRecord(BaseModel):
@@ -154,13 +178,26 @@ class ExperimentConfig(BaseModel):
     overlap: int = Field(default=50, ge=0, le=500)
     retrieval_method: str = Field(default="hybrid_rrf")
     top_k: int = Field(default=5, ge=1, le=50)
-    reranking: bool = Field(default=True)
-    # These are configured-model IDs selected in the UI; do not silently fall back
-    # to a provider model when a dropdown is empty or disabled.
+    # These options are deliberately off until real reranking/rewrite providers are wired.
+    reranking: bool = Field(default=False)
     embedding_model: str = Field(min_length=1, max_length=300)
     generation_model: str = Field(min_length=1, max_length=300)
     query_rewrite: bool = Field(default=False)
     notes: str | None = None
+
+    @model_validator(mode="after")
+    def validate_supported_options(self) -> "ExperimentConfig":
+        if self.chunking_strategy not in {"fixed-size", "sentence-aware", "recursive"}:
+            raise ValueError("Unsupported chunking strategy.")
+        if self.retrieval_method not in {"dense", "bm25", "hybrid_rrf"}:
+            raise ValueError("Unsupported retrieval method.")
+        if self.overlap >= self.chunk_size:
+            raise ValueError("Overlap must be smaller than chunk size.")
+        if self.reranking:
+            raise ValueError("Reranking is not implemented yet. Turn it off before saving this experiment.")
+        if self.query_rewrite:
+            raise ValueError("Query rewriting is not implemented yet. Turn it off before saving this experiment.")
+        return self
 
 
 class ExperimentCreateRequest(BaseModel):
@@ -178,7 +215,7 @@ class ExperimentRecord(BaseModel):
     config: ExperimentConfig
     status: str
     created_at: str
-    summary: dict[str, float] = Field(default_factory=dict)
+    summary: dict[str, Any] = Field(default_factory=dict)
 
 
 def benchmark_record(row: Any) -> dict[str, Any]:
