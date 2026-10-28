@@ -113,7 +113,7 @@
       );
       const experimentSubmit = experimentForm.querySelector('[type="submit"]');
       const benchmarkSubmit = benchmarkForm.querySelector('[type="submit"]');
-      if (experimentSubmit) experimentSubmit.disabled = datasets.length === 0;
+      if (experimentSubmit && datasets.length === 0) experimentSubmit.disabled = true;
       if (benchmarkSubmit) benchmarkSubmit.disabled = datasets.length === 0;
     } catch (error) {
       [experimentDataset, benchmarkDataset].forEach(select => {

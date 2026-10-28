@@ -18,15 +18,18 @@ from starlette.requests import Request
 
 try:
     from ragstudio.storage import connect, data_dir
+    from ragstudio.model_registry import router as model_router
 except ModuleNotFoundError:
     # Supports running directly from a source checkout without an editable install.
     from src.ragstudio.storage import connect, data_dir
+    from src.ragstudio.model_registry import router as model_router
 
 app = FastAPI(
     title="RAG Optimization Studio",
     description="Benchmarking platform for RAG pipeline experiments",
     version="0.2.0",
 )
+app.include_router(model_router)
 
 _BASE = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=_BASE / "static"), name="static")
@@ -152,8 +155,10 @@ class ExperimentConfig(BaseModel):
     retrieval_method: str = Field(default="hybrid_rrf")
     top_k: int = Field(default=5, ge=1, le=50)
     reranking: bool = Field(default=True)
-    embedding_model: str = Field(default="sentence-transformers/all-MiniLM-L6-v2")
-    generation_model: str = Field(default="gpt-4o-mini")
+    # These are configured-model IDs selected in the UI; do not silently fall back
+    # to a provider model when a dropdown is empty or disabled.
+    embedding_model: str = Field(min_length=1, max_length=300)
+    generation_model: str = Field(min_length=1, max_length=300)
     query_rewrite: bool = Field(default=False)
     notes: str | None = None
 
