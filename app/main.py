@@ -18,15 +18,18 @@ from starlette.requests import Request
 
 try:
     from ragstudio.storage import connect, data_dir
+    from ragstudio.model_registry import router as model_router
 except ModuleNotFoundError:
     # Supports running directly from a source checkout without an editable install.
     from src.ragstudio.storage import connect, data_dir
+    from src.ragstudio.model_registry import router as model_router
 
 app = FastAPI(
     title="RAG Optimization Studio",
     description="Benchmarking platform for RAG pipeline experiments",
     version="0.2.0",
 )
+app.include_router(model_router)
 
 _BASE = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=_BASE / "static"), name="static")
