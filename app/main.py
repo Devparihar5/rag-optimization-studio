@@ -194,10 +194,6 @@ class ExperimentConfig(BaseModel):
             raise ValueError("Unsupported retrieval method.")
         if self.overlap >= self.chunk_size:
             raise ValueError("Overlap must be smaller than chunk size.")
-        if self.reranking:
-            raise ValueError("Reranking is not implemented yet. Turn it off before saving this experiment.")
-        if self.query_rewrite:
-            raise ValueError("Query rewriting is not implemented yet. Turn it off before saving this experiment.")
         return self
 
 
@@ -461,6 +457,10 @@ async def create_experiment(body: ExperimentCreateRequest) -> dict[str, Any]:
     with connect() as db:
         if db.execute("SELECT 1 FROM datasets WHERE id=?", (body.dataset_id,)).fetchone() is None:
             raise HTTPException(status_code=404, detail="Dataset not found")
+        if body.config.reranking:
+            raise HTTPException(status_code=422, detail="Reranking is not implemented yet. Turn it off before saving this experiment.")
+        if body.config.query_rewrite:
+            raise HTTPException(status_code=422, detail="Query rewriting is not implemented yet. Turn it off before saving this experiment.")
         # A saved experiment must point to real configured models, never raw model names.
         get_model_runtime_config(body.config.generation_model)
         get_embedding_model_runtime_config(body.config.embedding_model)
