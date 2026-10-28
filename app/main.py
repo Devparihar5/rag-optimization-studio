@@ -554,12 +554,39 @@ def _embed_texts(runtime: dict[str, Any], texts: list[str]) -> list[list[float]]
         return []
     provider, model = runtime["provider"], runtime["model_id"]
     if provider == "openai":
-        result = _provider_json(
-            "https://api.openai.com/v1/embeddings",
-            {"model": model, "input": texts},
-            {"Authorization": f"Bearer {runtime['api_key']}"},
-        )
-        return [item["embedding"] for item in sorted(result.get("data", []), key=lambda item: item.get("index", 0))]
+        # Keep each request below the provider's aggregate token/input limits.
+        # Whitespace token estimates are conservative enough for our word-based chunks;
+        # batch smaller than the documented 300k aggregate-token ceiling.
+        vectors: list[list[float]] = []
+        batch: list[str] = []
+        estimated_tokens = 0
+
+        def flush_batch() -> None:
+            if not batch:
+                return
+            result = _provider_json(
+                "https://api.openai.com/v1/embeddings",
+                {"model": model, "input": list(batch)},
+                {"Authorization": f"Bearer {runtime['api_key']}"},
+            )
+            data = result.get("data", [])
+            ordered = sorted(data, key=lambda item: item.get("index", 0))
+            if len(ordered) != len(batch) or any(not isinstance(item.get("embedding"), list) for item in ordered):
+                raise RuntimeError("The embedding provider returned an incomplete batch.")
+            vectors.extend(item["embedding"] for item in ordered)
+            batch.clear()
+
+        for text_value in texts:
+            estimated = max(1, len(text_value.split()))
+            if estimated > 8000:
+                raise RuntimeError("A chunk is too large for the embedding provider; reduce chunk size.")
+            if batch and (len(batch) >= 128 or estimated_tokens + estimated > 200000):
+                flush_batch()
+                estimated_tokens = 0
+            batch.append(text_value)
+            estimated_tokens += estimated
+        flush_batch()
+        return vectors
     if provider == "gemini":
         vectors = []
         for text_value in texts:
@@ -786,7 +813,7 @@ def _run_experiment_sync(experiment_id: str) -> dict[str, Any]:
         dataset_id = experiment["dataset_id"]
         benchmark_id = experiment["benchmark_id"]
         documents = db.execute(
-            "SELECT id,filename,extracted_text FROM documents WHERE dataset_id=? ORDER BY created_at",
+            "SELECT id,filename,extracted_text FROM documents WHERE dataset_id=? ORDER BY created_at,id",
             (dataset_id,),
         ).fetchall()
         benchmark = db.execute("SELECT questions_json FROM benchmarks WHERE id=?", (benchmark_id,)).fetchone() if benchmark_id else None
@@ -856,11 +883,16 @@ def _run_experiment_sync(experiment_id: str) -> dict[str, Any]:
     summary["cost_usd"] = None  # No provider-specific pricing table is configured.
     completed_at = now_iso()
     benchmark_fingerprint = hashlib.sha256(json.dumps(questions, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+    corpus_fingerprint = hashlib.sha256(json.dumps(
+        [{"id": document["id"], "filename": document["filename"], "text": document["extracted_text"]} for document in documents],
+        sort_keys=True, ensure_ascii=False,
+    ).encode("utf-8")).hexdigest()
     result_payload = {
         "experiment_id": experiment_id,
         "dataset_id": dataset_id,
         "benchmark_id": benchmark_id,
         "benchmark_fingerprint": benchmark_fingerprint,
+        "corpus_fingerprint": corpus_fingerprint,
         "retrieval_method": config["retrieval_method"],
         "chunk_count": len(chunks),
         "summary": summary,
@@ -941,9 +973,13 @@ async def compare_experiments(body: ExperimentCompareRequest) -> dict[str, Any]:
         raise HTTPException(status_code=409, detail="Only completed experiments can be compared.")
     if len({row["dataset_id"] for row in ordered}) != 1 or len({row["benchmark_id"] for row in ordered}) != 1:
         raise HTTPException(status_code=409, detail="Experiments must use the same dataset and benchmark to be compared.")
-    fingerprints = [json_load(row["results_json"], {}).get("benchmark_fingerprint") for row in ordered]
+    result_payloads = [json_load(row["results_json"], {}) for row in ordered]
+    fingerprints = [payload.get("benchmark_fingerprint") for payload in result_payloads]
     if not all(fingerprints) or len(set(fingerprints)) != 1:
         raise HTTPException(status_code=409, detail="Experiments were run against different benchmark question sets and cannot be compared.")
+    corpus_fingerprints = [payload.get("corpus_fingerprint") for payload in result_payloads]
+    if not all(corpus_fingerprints) or len(set(corpus_fingerprints)) != 1:
+        raise HTTPException(status_code=409, detail="Experiments were run against different dataset contents and cannot be compared.")
     configs = [json_load(row["config_json"], {}) for row in ordered]
     keys = sorted(set().union(*(config.keys() for config in configs)))
     differences = {
