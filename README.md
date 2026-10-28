@@ -94,6 +94,18 @@ Open **Datasets**, create a dataset, then select **Documents** on its row to upl
 
 Deleting a dataset cascades to its documents, benchmarks, and experiments. The associated uploaded files are removed from disk. An experiment's benchmark must belong to the same dataset; invalid pairings return HTTP 409.
 
+
+## Model providers and credentials
+
+Open **Models** to connect a generation model before creating an experiment.
+
+- **OpenAI** and **Google Gemini**: enter an API key, select **Verify connection & load models**, and choose from models returned by that provider for the supplied key. Gemini models are limited to those advertising `generateContent` support; non-generation OpenAI model families are filtered out.
+- **Ollama (local)**: run Ollama on your machine, install a model with `ollama pull <model>`, then discover models at `http://localhost:11434` (or `http://host.docker.internal:11434` when the app runs in a container).
+- Select a configured model in the experiment form. The selector stores the configured model's internal ID rather than asking users to type an arbitrary model name.
+- Provider API keys are encrypted before being stored in SQLite. The encryption key is kept in `.data/.model_encryption_key` with restrictive file permissions and is never returned by the API. Back up this file with the database if you need to preserve access to saved credentials. Protect the entire data directory and do not commit it.
+
+Model discovery validates credentials and lists accessible models. Experiment execution is a separate roadmap item; configuring a model does not itself run an inference or benchmark.
+
 For production deployments, mount a persistent volume at the configured data directory and back it up along with the application.
 
 ## Local development
