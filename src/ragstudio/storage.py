@@ -62,11 +62,25 @@ def connect() -> Iterator[sqlite3.Connection]:
                 config_json TEXT NOT NULL,
                 status TEXT NOT NULL,
                 created_at TEXT NOT NULL,
-                summary_json TEXT NOT NULL DEFAULT '{}'
+                summary_json TEXT NOT NULL DEFAULT '{}',
+                result_json TEXT NOT NULL DEFAULT '{}',
+                error TEXT,
+                started_at TEXT,
+                finished_at TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_experiments_dataset_id ON experiments(dataset_id);
             """
         )
+        # Migrate existing local databases without requiring users to delete data.
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(experiments)").fetchall()}
+        for name, definition in (
+            ("result_json", "TEXT NOT NULL DEFAULT '{}'"),
+            ("error", "TEXT"),
+            ("started_at", "TEXT"),
+            ("finished_at", "TEXT"),
+        ):
+            if name not in columns:
+                connection.execute(f"ALTER TABLE experiments ADD COLUMN {name} {definition}")
         yield connection
         connection.commit()
     except Exception:

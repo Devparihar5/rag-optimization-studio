@@ -116,6 +116,7 @@
       <section id="tab-experiments" class="tab-content">
         <div class="toolbar">
           <button class="btn btn-primary" id="btn-new-experiment">+ New experiment</button>
+          <button class="btn btn-ghost" id="btn-compare-experiments" disabled>Compare selected</button>
         </div>
 
         <div class="card" style="margin-top:16px;">
@@ -245,6 +246,15 @@
           </div>
         </div>
         <div id="drawer-backdrop" class="drawer-backdrop hidden"></div>
+        <div id="results-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="results-title">
+          <div class="modal-box results-modal-box">
+            <div class="drawer-header">
+              <h2 id="results-title">Experiment results</h2>
+              <button class="btn-close" id="close-results-modal" aria-label="Close results">✕</button>
+            </div>
+            <div id="results-content" aria-live="polite"></div>
+          </div>
+        </div>
       </section>
 
       <!-- TAB: Datasets -->
@@ -331,9 +341,18 @@
                 </select>
                 <small class="selector-help" data-selector-help="dataset_id"></small>
               </label>
+              <div class="form-section-title">Evaluation questions</div>
+              <p class="selector-help">Add at least one question. Expected answers and relevant passages are optional, but relevant passages enable retrieval metrics.</p>
+              <div id="benchmark-questions" class="benchmark-questions"></div>
+              <div class="form-row">
+                <button type="button" class="btn btn-ghost" id="add-benchmark-question">+ Add question</button>
+                <label class="btn btn-ghost import-button" for="benchmark-import-file">Import CSV / JSON</label>
+                <input id="benchmark-import-file" type="file" accept=".csv,.json,application/json,text/csv" hidden />
+              </div>
+              <div id="benchmark-import-status" class="form-status"></div>
               <div class="form-actions">
                 <button type="button" class="btn btn-ghost" id="cancel-benchmark">Cancel</button>
-                <button type="submit" class="btn btn-primary">Create benchmark</button>
+                <button type="submit" class="btn btn-primary" id="save-benchmark">Create benchmark</button>
               </div>
               <div id="benchmark-status"></div>
             </form>

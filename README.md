@@ -166,3 +166,31 @@ The starter backend includes:
 - dashboard UI for comparing a few pipeline shapes
 
 This is intentionally a strong foundation for the eventual full evaluation engine.
+
+
+## Benchmarking and experiment execution
+
+Benchmarks contain one or more saved questions. Each question can include an expected answer and relevant passages. Use **View / Edit** to update a benchmark, add or remove cases, or import a JSON/CSV file. JSON accepts an array of question objects or an object with a questions array. CSV requires a question header and optionally accepts answer / expected_answer and relevant_passages columns. Separate multiple relevant passages in CSV with |.
+
+Create an experiment using a dataset, a benchmark from that same dataset, and configured generation and embedding models. Select **Run** to execute it. Runs are marked running, then done or failed; start/finish timestamps, errors, per-question outputs, and aggregate metrics are persisted in SQLite. The provider must be reachable from the server. Open **Results** to inspect generated answers, expected answers, retrieved chunks, latency, token usage when reported by the provider, and retrieval metrics.
+
+Implemented retrieval methods:
+- **BM25**: local sparse lexical ranking.
+- **Dense**: cosine similarity over vectors returned by the selected embedding provider.
+- **Hybrid RRF**: reciprocal-rank fusion of BM25 and dense rankings.
+- **Chunking**: fixed-size, sentence-aware, and recursive splitting.
+- **Query rewriting**: asks the configured generation model to rewrite the search query.
+- **Reranking**: reorders the retrieved candidates by lexical query overlap. This is a lightweight lexical reranker, not a trained cross-encoder.
+
+Precision@k, Recall@k, MRR, and NDCG@k are only computed for questions with relevant passages. These metrics use passage-to-chunk lexical matching and should be interpreted as an approximate retrieval evaluation, not semantic relevance judgments. Metrics without relevant passages are shown as unavailable. Latency is measured by the application. Token usage is included only when returned by the provider. Monetary cost is deliberately unavailable because provider pricing is not calculated.
+
+Use **Compare selected** to compare two or more completed experiments. Runs must share the same dataset and benchmark; the comparison shows measured aggregate metrics and configuration differences.
+
+### Tests
+
+Install development dependencies and run the deterministic test suite:
+
+    python -m pip install -e ".[dev]"
+    pytest
+
+Provider API tests should use mocks and do not require paid credentials. Live experiment runs require configured generation and embedding models.
