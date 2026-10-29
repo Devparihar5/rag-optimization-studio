@@ -610,7 +610,7 @@ async function openExperimentResults(id) {
         </details>
       </article>`).join('');
     content.innerHTML = `<div class="results-metrics">${cards}</div>
-      <p class="selector-help">Retrieval metrics are averaged only over questions with relevant passages. Cost is unavailable unless the provider reports a usable price.</p>
+      <p class="selector-help">Retrieval metrics are averaged only over questions with relevant passages. Cost is unavailable because this build does not calculate provider pricing.</p>
       ${cases || '<p>No question results were recorded.</p>'}`;
   } catch (err) { content.innerHTML = `<p class="error-text">${escHtml(err.message)}</p>`; }
 }
