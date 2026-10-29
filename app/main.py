@@ -9,7 +9,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -19,10 +19,12 @@ from starlette.requests import Request
 try:
     from ragstudio.storage import connect, data_dir
     from ragstudio.model_registry import router as model_router
+    from ragstudio.pipeline import execute_experiment
 except ModuleNotFoundError:
     # Supports running directly from a source checkout without an editable install.
     from src.ragstudio.storage import connect, data_dir
     from src.ragstudio.model_registry import router as model_router
+    from src.ragstudio.pipeline import execute_experiment
 
 app = FastAPI(
     title="RAG Optimization Studio",
@@ -149,10 +151,10 @@ class BenchmarkRecord(BaseModel):
 
 
 class ExperimentConfig(BaseModel):
-    chunking_strategy: str = Field(default="fixed-size")
+    chunking_strategy: str = Field(default="fixed-size", pattern="^(fixed-size|sentence-aware|recursive)$")
     chunk_size: int = Field(default=500, ge=100, le=2000)
     overlap: int = Field(default=50, ge=0, le=500)
-    retrieval_method: str = Field(default="hybrid_rrf")
+    retrieval_method: str = Field(default="hybrid_rrf", pattern="^(dense|bm25|hybrid_rrf)$")
     top_k: int = Field(default=5, ge=1, le=50)
     reranking: bool = Field(default=True)
     # These are configured-model IDs selected in the UI; do not silently fall back
@@ -178,7 +180,10 @@ class ExperimentRecord(BaseModel):
     config: ExperimentConfig
     status: str
     created_at: str
-    summary: dict[str, float] = Field(default_factory=dict)
+    summary: dict[str, Any] = Field(default_factory=dict)
+    error: str | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
 
 
 def benchmark_record(row: Any) -> dict[str, Any]:
@@ -196,6 +201,9 @@ def experiment_record(row: Any) -> dict[str, Any]:
         "config": json_load(row["config_json"], {}),
         "status": row["status"], "created_at": row["created_at"],
         "summary": json_load(row["summary_json"], {}),
+        "error": row["error"] if "error" in row.keys() else None,
+        "started_at": row["started_at"] if "started_at" in row.keys() else None,
+        "finished_at": row["finished_at"] if "finished_at" in row.keys() else None,
     }
 
 
@@ -437,6 +445,130 @@ async def get_experiment(experiment_id: str) -> dict[str, Any]:
     if row is None:
         raise HTTPException(status_code=404, detail="Experiment not found")
     return experiment_record(row)
+
+
+
+def run_experiment_task(experiment_id: str) -> None:
+    """Run the selected experiment and persist either measured results or the failure."""
+    try:
+        with connect() as db:
+            row = db.execute("SELECT * FROM experiments WHERE id=?", (experiment_id,)).fetchone()
+            if row is None:
+                return
+            config = json_load(row["config_json"], {})
+            dataset_row = db.execute("SELECT * FROM datasets WHERE id=?", (row["dataset_id"],)).fetchone()
+            if dataset_row is None:
+                raise RuntimeError("The selected dataset no longer exists.")
+            document_rows = db.execute(
+                "SELECT id,filename,extracted_text FROM documents WHERE dataset_id=? ORDER BY created_at",
+                (row["dataset_id"],),
+            ).fetchall()
+            if not row["benchmark_id"]:
+                raise RuntimeError("Select a benchmark with evaluation questions before running this experiment.")
+            benchmark_row = db.execute(
+                "SELECT * FROM benchmarks WHERE id=?", (row["benchmark_id"],)
+            ).fetchone()
+            if benchmark_row is None:
+                raise RuntimeError("The selected benchmark no longer exists.")
+            questions = json_load(benchmark_row["questions_json"], [])
+            dataset = dict(dataset_row)
+            documents = [dict(item) for item in document_rows]
+        result = execute_experiment(dataset, documents, questions, config)
+        finished = now_iso()
+        with connect() as db:
+            db.execute(
+                """UPDATE experiments SET status='done',summary_json=?,result_json=?,error=NULL,finished_at=?
+                   WHERE id=?""",
+                (json.dumps(result["metrics"]), json.dumps(result), finished, experiment_id),
+            )
+    except Exception as exc:
+        finished = now_iso()
+        with connect() as db:
+            db.execute(
+                "UPDATE experiments SET status='failed',error=?,finished_at=? WHERE id=?",
+                (str(exc)[:4000], finished, experiment_id),
+            )
+
+
+@app.post("/api/experiments/{experiment_id}/run", status_code=202, tags=["experiments"])
+async def start_experiment(experiment_id: str, background_tasks: BackgroundTasks) -> dict[str, Any]:
+    with connect() as db:
+        row = db.execute("SELECT * FROM experiments WHERE id=?", (experiment_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Experiment not found")
+        if row["status"] == "running":
+            raise HTTPException(status_code=409, detail="This experiment is already running")
+        if row["benchmark_id"]:
+            benchmark = db.execute(
+                "SELECT dataset_id FROM benchmarks WHERE id=?", (row["benchmark_id"],)
+            ).fetchone()
+            if benchmark is None:
+                raise HTTPException(status_code=404, detail="Benchmark not found")
+            if benchmark["dataset_id"] != row["dataset_id"]:
+                raise HTTPException(status_code=409, detail="Benchmark must belong to the selected dataset")
+        started = now_iso()
+        db.execute(
+            """UPDATE experiments SET status='running',started_at=?,finished_at=NULL,error=NULL,
+               result_json='{}',summary_json='{}' WHERE id=?""",
+            (started, experiment_id),
+        )
+    background_tasks.add_task(run_experiment_task, experiment_id)
+    return {"id": experiment_id, "status": "running", "started_at": started}
+
+
+@app.get("/api/experiments/{experiment_id}/results", tags=["experiments"])
+async def get_experiment_results(experiment_id: str) -> dict[str, Any]:
+    with connect() as db:
+        row = db.execute("SELECT * FROM experiments WHERE id=?", (experiment_id,)).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+    return {
+        "id": experiment_id,
+        "status": row["status"],
+        "error": row["error"],
+        "started_at": row["started_at"],
+        "finished_at": row["finished_at"],
+        "results": json_load(row["result_json"], {}),
+        "summary": json_load(row["summary_json"], {}),
+    }
+
+
+class ExperimentCompareRequest(BaseModel):
+    experiment_ids: list[str] = Field(min_length=2, max_length=10)
+
+
+@app.post("/api/experiments/compare", tags=["experiments"])
+async def compare_experiments(body: ExperimentCompareRequest) -> dict[str, Any]:
+    if len(set(body.experiment_ids)) != len(body.experiment_ids):
+        raise HTTPException(status_code=422, detail="Choose each experiment only once")
+    with connect() as db:
+        placeholders = ",".join("?" for _ in body.experiment_ids)
+        rows = db.execute(
+            f"SELECT * FROM experiments WHERE id IN ({placeholders})", body.experiment_ids
+        ).fetchall()
+    by_id = {row["id"]: row for row in rows}
+    if len(by_id) != len(body.experiment_ids):
+        raise HTTPException(status_code=404, detail="One or more experiments were not found")
+    ordered = [by_id[item] for item in body.experiment_ids]
+    if any(row["status"] != "done" for row in ordered):
+        raise HTTPException(status_code=409, detail="Only completed experiments can be compared")
+    pairs = {(row["dataset_id"], row["benchmark_id"]) for row in ordered}
+    if len(pairs) != 1:
+        raise HTTPException(status_code=409, detail="Experiments must use the same dataset and benchmark")
+    configs = {row["id"]: json_load(row["config_json"], {}) for row in ordered}
+    keys = sorted({key for config in configs.values() for key in config})
+    differences = {key: {row["id"]: configs[row["id"]].get(key) for row in ordered}
+                   for key in keys if len({json.dumps(configs[row["id"]].get(key), sort_keys=True) for row in ordered}) > 1}
+    return {
+        "experiments": [{
+            "id": row["id"], "name": row["name"],
+            "summary": json_load(row["summary_json"], {}),
+            "config": configs[row["id"]],
+        } for row in ordered],
+        "configuration_differences": differences,
+        "dataset_id": ordered[0]["dataset_id"],
+        "benchmark_id": ordered[0]["benchmark_id"],
+    }
 
 
 @app.delete("/api/experiments/{experiment_id}", status_code=204, tags=["experiments"])
