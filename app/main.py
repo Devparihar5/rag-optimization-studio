@@ -10,7 +10,7 @@ import uuid
 from collections import Counter
 from datetime import datetime, timezone
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlencode
+from urllib.parse import quote
 from urllib.request import Request as URLRequest, urlopen
 from html.parser import HTMLParser
 from pathlib import Path
