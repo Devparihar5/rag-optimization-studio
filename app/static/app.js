@@ -403,11 +403,11 @@ let editingBenchmarkId = null;
 function questionRow(question = {}) {
   const row = document.createElement('div');
   row.className = 'benchmark-question-row';
-  row.innerHTML = \`
+  row.innerHTML = `
     <div class="benchmark-question-heading"><strong>Question</strong><button type="button" class="btn btn-danger remove-question">Remove</button></div>
     <label class="form-label">Question text <span class="required">*</span><textarea class="form-input" data-question rows="2" required maxlength="5000"></textarea></label>
     <label class="form-label">Expected answer <span class="optional">(optional)</span><textarea class="form-input" data-answer rows="2" maxlength="10000"></textarea></label>
-    <label class="form-label">Relevant passages <span class="optional">(one per line, optional)</span><textarea class="form-input" data-passages rows="2" maxlength="20000"></textarea></label>\`;
+    <label class="form-label">Relevant passages <span class="optional">(one per line, optional)</span><textarea class="form-input" data-passages rows="2" maxlength="20000"></textarea></label>`;
   row.querySelector('[data-question]').value = question.question || '';
   row.querySelector('[data-answer]').value = question.answer || '';
   row.querySelector('[data-passages]').value = (question.relevant_passages || []).join('\n');
@@ -421,7 +421,7 @@ function questionRow(question = {}) {
 
 function renumberQuestions() {
   benchmarkQuestions.querySelectorAll('.benchmark-question-row').forEach((row, index) => {
-    row.querySelector('strong').textContent = \`Question \${index + 1}\`;
+    row.querySelector('strong').textContent = `Question ${index + 1}`;
   });
 }
 
@@ -431,7 +431,7 @@ function readBenchmarkQuestions() {
   for (let index = 0; index < rows.length; index++) {
     const row = rows[index];
     const question = row.querySelector('[data-question]').value.trim();
-    if (!question) throw new Error(\`Question \${index + 1}: question text is required.\`);
+    if (!question) throw new Error(`Question ${index + 1}: question text is required.`);
     questions.push({
       question,
       answer: row.querySelector('[data-answer]').value.trim() || null,
@@ -454,7 +454,7 @@ function openBenchmarkModal() {
 
 async function editBenchmark(id) {
   try {
-    const benchmark = await api('GET', \`/benchmarks/\${id}\`);
+    const benchmark = await api('GET', `/benchmarks/${id}`);
     editingBenchmarkId = id;
     benchmarkForm.reset();
     benchmarkQuestions.replaceChildren();
@@ -471,7 +471,7 @@ async function loadBenchmarkDatasetOptions(selectedId) {
   const select = benchmarkForm.elements.dataset_id;
   const datasets = await api('GET', '/datasets');
   select.replaceChildren(new Option('Choose a dataset…', ''));
-  datasets.forEach(dataset => select.add(new Option(\`\${dataset.name} (\${dataset.id.slice(0, 8)})\`, dataset.id)));
+  datasets.forEach(dataset => select.add(new Option(`${dataset.name} (${dataset.id.slice(0, 8)})`, dataset.id)));
   select.value = selectedId || '';
 }
 
@@ -514,7 +514,7 @@ function parseCsv(text) {
   const questionColumn = header.indexOf('question');
   if (questionColumn < 0) throw new Error('CSV import: missing required "question" column.');
   return rows.map((values, index) => {
-    if (!values[questionColumn]?.trim()) throw new Error(\`CSV row \${index + 2}, field question: value is required.\`);
+    if (!values[questionColumn]?.trim()) throw new Error(`CSV row ${index + 2}, field question: value is required.`);
     const get = name => { const column = header.indexOf(name); return column >= 0 ? (values[column] || '').trim() : ''; };
     const passages = get('relevant_passages') || get('relevant_passage');
     return { question: values[questionColumn].trim(), answer: get('answer') || get('expected_answer') || null,
@@ -535,7 +535,7 @@ benchmarkImport.addEventListener('change', async () => {
       if (!Array.isArray(questions)) throw new Error('JSON import: expected an array or an object with a questions array.');
       questions = questions.map((item, index) => {
         if (!item || typeof item.question !== 'string' || !item.question.trim())
-          throw new Error(\`JSON row \${index + 1}, field question: value is required.\`);
+          throw new Error(`JSON row ${index + 1}, field question: value is required.`);
         return { question: item.question.trim(), answer: item.answer || item.expected_answer || null,
           relevant_passages: Array.isArray(item.relevant_passages) ? item.relevant_passages : [] };
       });
@@ -543,7 +543,7 @@ benchmarkImport.addEventListener('change', async () => {
     if (!questions.length) throw new Error('Import file has no questions.');
     benchmarkQuestions.replaceChildren();
     questions.forEach(questionRow);
-    status.textContent = \`Imported \${questions.length} questions. Review them before saving.\`;
+    status.textContent = `Imported ${questions.length} questions. Review them before saving.`;
     status.className = 'form-status success';
   } catch (err) {
     status.textContent = err.message;
@@ -559,14 +559,14 @@ benchmarkForm.addEventListener('submit', async e => {
     const fd = new FormData(benchmarkForm);
     const payload = { name: fd.get('name'), dataset_id: fd.get('dataset_id'), questions: readBenchmarkQuestions() };
     if (!payload.dataset_id) throw new Error('Choose a dataset.');
-    if (editingBenchmarkId) await api('PUT', \`/benchmarks/\${editingBenchmarkId}\`, payload);
+    if (editingBenchmarkId) await api('PUT', `/benchmarks/${editingBenchmarkId}`, payload);
     else await api('POST', '/benchmarks', payload);
     showStatus('benchmark-status', editingBenchmarkId ? '✓ Benchmark updated!' : '✓ Benchmark created!', 'success');
     loadBenchmarks();
     loadOverview();
     setTimeout(closeBenchmarkModal, 700);
   } catch (err) {
-    showStatus('benchmark-status', \`✗ \${err.message}\`, 'error');
+    showStatus('benchmark-status', `✗ ${err.message}`, 'error');
   } finally { saveButton.disabled = false; }
 });
 
@@ -586,46 +586,46 @@ async function openExperimentResults(id) {
   const content = document.getElementById('results-content');
   content.textContent = 'Loading results…';
   try {
-    const response = await api('GET', \`/experiments/\${id}/results\`);
+    const response = await api('GET', `/experiments/${id}/results`);
     if (response.status === 'running' || response.status === 'pending') {
-      content.innerHTML = \`<p>Experiment status: <strong>\${escHtml(response.status)}</strong>. Results are not available yet.</p>\`;
+      content.innerHTML = `<p>Experiment status: <strong>${escHtml(response.status)}</strong>. Results are not available yet.</p>`;
       return;
     }
     if (response.status === 'failed') {
-      content.innerHTML = \`<p class="error-text">Run failed: \${escHtml(response.error || 'No error details available.')}</p>\`;
+      content.innerHTML = `<p class="error-text">Run failed: ${escHtml(response.error || 'No error details available.')}</p>`;
       return;
     }
     const result = response.results || {};
     const metrics = result.metrics || response.summary || {};
     const cards = ['precision_at_k','recall_at_k','mrr','ndcg_at_k','avg_latency_ms','total_tokens','cost']
-      .map(key => \`<div class="result-metric"><span>\${escHtml(key.replaceAll('_',' '))}</span><strong>\${metricLabel(metrics[key], key.includes('latency') ? 1 : 3)}</strong></div>\`).join('');
-    const cases = (result.cases || []).map((item, index) => \`
+      .map(key => `<div class="result-metric"><span>${escHtml(key.replaceAll('_',' '))}</span><strong>${metricLabel(metrics[key], key.includes('latency') ? 1 : 3)}</strong></div>`).join('');
+    const cases = (result.cases || []).map((item, index) => `
       <article class="result-case">
-        <h3>Q\${index + 1}. \${escHtml(item.question)}</h3>
-        <p><strong>Answer</strong><br>\${escHtml(item.answer || 'No answer returned.')}</p>
-        <p><strong>Expected answer</strong><br>\${escHtml(item.expected_answer || 'Not provided')}</p>
-        <p><strong>Latency</strong>: \${metricLabel(item.latency_ms, 1)} ms · <strong>Cost</strong>: \${metricLabel(item.cost)}</p>
-        <details><summary>Retrieved evidence (\${(item.retrieved || []).length})</summary>
-          \${(item.retrieved || []).map(doc => \`<div class="evidence-item"><strong>\${escHtml(doc.filename)} · chunk \${doc.chunk_index}</strong><p>\${escHtml(doc.text)}</p></div>\`).join('') || '<p>No evidence retrieved.</p>'}
+        <h3>Q${index + 1}. ${escHtml(item.question)}</h3>
+        <p><strong>Answer</strong><br>${escHtml(item.answer || 'No answer returned.')}</p>
+        <p><strong>Expected answer</strong><br>${escHtml(item.expected_answer || 'Not provided')}</p>
+        <p><strong>Latency</strong>: ${metricLabel(item.latency_ms, 1)} ms · <strong>Cost</strong>: ${metricLabel(item.cost)}</p>
+        <details><summary>Retrieved evidence (${(item.retrieved || []).length})</summary>
+          ${(item.retrieved || []).map(doc => `<div class="evidence-item"><strong>${escHtml(doc.filename)} · chunk ${doc.chunk_index}</strong><p>${escHtml(doc.text)}</p></div>`).join('') || '<p>No evidence retrieved.</p>'}
         </details>
-      </article>\`).join('');
-    content.innerHTML = \`<div class="results-metrics">\${cards}</div>
+      </article>`).join('');
+    content.innerHTML = `<div class="results-metrics">${cards}</div>
       <p class="selector-help">Retrieval metrics are averaged only over questions with relevant passages. Cost is unavailable unless the provider reports a usable price.</p>
-      \${cases || '<p>No question results were recorded.</p>'}\`;
-  } catch (err) { content.innerHTML = \`<p class="error-text">\${escHtml(err.message)}</p>\`; }
+      ${cases || '<p>No question results were recorded.</p>'}`;
+  } catch (err) { content.innerHTML = `<p class="error-text">${escHtml(err.message)}</p>`; }
 }
 
 async function pollExperiment(id, attempt) {
   if (attempt > 90) { loadExperiments(); return; }
   try {
-    const result = await api('GET', \`/experiments/\${id}/results\`);
+    const result = await api('GET', `/experiments/${id}/results`);
     if (result.status === 'running' || result.status === 'pending') {
       setTimeout(() => pollExperiment(id, attempt + 1), 1000);
     } else {
       loadExperiments();
       loadOverview();
       if (result.status === 'done') openExperimentResults(id);
-      else if (result.status === 'failed') alert(\`Experiment failed: \${result.error || 'Unknown error'}\`);
+      else if (result.status === 'failed') alert(`Experiment failed: ${result.error || 'Unknown error'}`);
     }
   } catch { loadExperiments(); }
 }
@@ -640,16 +640,16 @@ document.getElementById('btn-compare-experiments').addEventListener('click', asy
   try {
     const comparison = await api('POST', '/experiments/compare', { experiment_ids: ids });
     const metricKeys = [...new Set(comparison.experiments.flatMap(item => Object.keys(item.summary || {})))];
-    const headers = comparison.experiments.map(item => \`<th>\${escHtml(item.name)}</th>\`).join('');
-    const rows = metricKeys.map(key => \`<tr><th>\${escHtml(key.replaceAll('_',' '))}</th>\${comparison.experiments.map(item => \`<td>\${metricLabel(item.summary[key])}</td>\`).join('')}</tr>\`).join('');
+    const headers = comparison.experiments.map(item => `<th>${escHtml(item.name)}</th>`).join('');
+    const rows = metricKeys.map(key => `<tr><th>${escHtml(key.replaceAll('_',' '))}</th>${comparison.experiments.map(item => `<td>${metricLabel(item.summary[key])}</td>`).join('')}</tr>`).join('');
     const diffs = Object.entries(comparison.configuration_differences || {}).map(([key, values]) =>
-      \`<li><strong>\${escHtml(key)}</strong>: \${Object.entries(values).map(([id, value]) => {
+      `<li><strong>${escHtml(key)}</strong>: ${Object.entries(values).map(([id, value]) => {
         const name = comparison.experiments.find(item => item.id === id)?.name || id;
-        return \`\${escHtml(name)} = \${escHtml(JSON.stringify(value))}\`;
-      }).join('; ')}</li>\`).join('');
-    content.innerHTML = \`<div class="table-scroll"><table class="data-table"><thead><tr><th>Metric</th>\${headers}</tr></thead><tbody>\${rows}</tbody></table></div>
-      <h3>Configuration differences</h3>\${diffs ? \`<ul>\${diffs}</ul>\` : '<p>Selected configurations are identical.</p>'}\`;
-  } catch (err) { content.innerHTML = \`<p class="error-text">\${escHtml(err.message)}</p>\`; }
+        return `${escHtml(name)} = ${escHtml(JSON.stringify(value))}`;
+      }).join('; ')}</li>`).join('');
+    content.innerHTML = `<div class="table-scroll"><table class="data-table"><thead><tr><th>Metric</th>${headers}</tr></thead><tbody>${rows}</tbody></table></div>
+      <h3>Configuration differences</h3>${diffs ? `<ul>${diffs}</ul>` : '<p>Selected configurations are identical.</p>'}`;
+  } catch (err) { content.innerHTML = `<p class="error-text">${escHtml(err.message)}</p>`; }
 });
 
 // ── Keyboard shortcuts ────────────────────────────────────────
