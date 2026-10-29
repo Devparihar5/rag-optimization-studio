@@ -157,8 +157,8 @@
               </div>
               <label class="form-label">
                 Benchmark <span class="required">*</span>
-                <select class="form-input" name="benchmark_id" aria-label="Select experiment benchmark">
-                  <option value="">No benchmark (optional)</option>
+                <select class="form-input" name="benchmark_id" required aria-label="Select experiment benchmark">
+                  <option value="" selected disabled>Choose a benchmark…</option>
                 </select>
                 <small class="selector-help" data-selector-help="benchmark_id"></small>
               </label>
@@ -240,7 +240,7 @@
 
               <div class="form-actions">
                 <button type="button" class="btn btn-ghost" id="cancel-experiment">Cancel</button>
-                <button type="submit" class="btn btn-primary">Save experiment</button>
+                <button type="submit" class="btn btn-primary">Create &amp; run experiment</button>
               </div>
               <div id="form-status"></div>
             </form>
