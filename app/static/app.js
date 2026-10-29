@@ -146,6 +146,7 @@ async function loadExperiments() {
       <table class="data-table">
         <thead>
           <tr>
+            <th>Select</th>
             <th>Name</th>
             <th>Chunking</th>
             <th>Retrieval</th>
@@ -153,12 +154,13 @@ async function loadExperiments() {
             <th>Rerank</th>
             <th>Status</th>
             <th>Created</th>
-            <th></th>
+            <th>Actions</th>
           </tr>
         </thead>
         <tbody>
           ${exps.map(e => `
             <tr>
+              <td><input type="checkbox" data-select-exp="${escHtml(e.id)}" aria-label="Select ${escHtml(e.name)} for comparison" ${e.status !== 'done' ? 'disabled' : ''}></td>
               <td class="name-cell">${escHtml(e.name)}</td>
               <td>${escHtml(e.config.chunking_strategy)}</td>
               <td><span class="pill pill-purple">${escHtml(e.config.retrieval_method)}</span></td>
@@ -167,12 +169,36 @@ async function loadExperiments() {
               <td><span class="pill ${statusPill(e.status)}">${escHtml(e.status)}</span></td>
               <td>${fmtDate(e.created_at)}</td>
               <td>
+                <button class="btn btn-ghost" data-run-exp="${escHtml(e.id)}" ${e.status === 'running' ? 'disabled' : ''}>Run</button>
+                <button class="btn btn-ghost" data-results-exp="${escHtml(e.id)}">Results</button>
                 <button class="btn btn-danger" data-delete-exp="${escHtml(e.id)}" title="Delete">🗑</button>
               </td>
             </tr>`).join('')}
         </tbody>
       </table>`;
 
+    const compareButton = document.getElementById('btn-compare-experiments');
+    const updateCompareButton = () => {
+      const selected = container.querySelectorAll('[data-select-exp]:checked');
+      if (compareButton) compareButton.disabled = selected.length < 2;
+    };
+    container.querySelectorAll('[data-select-exp]').forEach(input => input.addEventListener('change', updateCompareButton));
+    updateCompareButton();
+    container.querySelectorAll('[data-run-exp]').forEach(btn => btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      btn.textContent = 'Starting…';
+      try {
+        await api('POST', `/experiments/${btn.dataset.runExp}/run`);
+        showStatus('form-status', 'Experiment started. Results will appear when execution finishes.', 'success');
+        loadExperiments();
+        pollExperiment(btn.dataset.runExp, 0);
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = 'Run';
+        alert(err.message);
+      }
+    }));
+    container.querySelectorAll('[data-results-exp]').forEach(btn => btn.addEventListener('click', () => openExperimentResults(btn.dataset.resultsExp)));
     // Delete buttons
     container.querySelectorAll('[data-delete-exp]').forEach(btn => {
       btn.addEventListener('click', async () => {
@@ -348,7 +374,7 @@ async function loadBenchmarks() {
     container.innerHTML = `
       <table class="data-table">
         <thead>
-          <tr><th>Name</th><th>Dataset ID</th><th>Questions</th><th>Created</th></tr>
+          <tr><th>Name</th><th>Dataset ID</th><th>Questions</th><th>Created</th><th>Actions</th></tr>
         </thead>
         <tbody>
           ${benchmarks.map(b => `
@@ -357,44 +383,273 @@ async function loadBenchmarks() {
               <td>${escHtml(b.dataset_id)}</td>
               <td>${b.question_count}</td>
               <td>${fmtDate(b.created_at)}</td>
+              <td><button class="btn btn-ghost" data-edit-bench="${escHtml(b.id)}">View / Edit</button></td>
             </tr>`).join('')}
         </tbody>
       </table>`;
+    container.querySelectorAll('[data-edit-bench]').forEach(btn => btn.addEventListener('click', () => editBenchmark(btn.dataset.editBench)));
   } catch (err) {
     setHtml('benchmarks-list', `<div class="empty-state"><p style="color:var(--red)">Error: ${escHtml(err.message)}</p></div>`);
   }
 }
 
-// Benchmark modal
+// Benchmark editor with question CRUD and CSV/JSON import.
 const benchmarkModal = document.getElementById('benchmark-modal');
 const benchmarkForm  = document.getElementById('benchmark-form');
+const benchmarkQuestions = document.getElementById('benchmark-questions');
+const benchmarkImport = document.getElementById('benchmark-import-file');
+let editingBenchmarkId = null;
 
-function openBenchmarkModal()  { benchmarkModal.classList.remove('hidden'); }
+function questionRow(question = {}) {
+  const row = document.createElement('div');
+  row.className = 'benchmark-question-row';
+  row.innerHTML = \`
+    <div class="benchmark-question-heading"><strong>Question</strong><button type="button" class="btn btn-danger remove-question">Remove</button></div>
+    <label class="form-label">Question text <span class="required">*</span><textarea class="form-input" data-question rows="2" required maxlength="5000"></textarea></label>
+    <label class="form-label">Expected answer <span class="optional">(optional)</span><textarea class="form-input" data-answer rows="2" maxlength="10000"></textarea></label>
+    <label class="form-label">Relevant passages <span class="optional">(one per line, optional)</span><textarea class="form-input" data-passages rows="2" maxlength="20000"></textarea></label>\`;
+  row.querySelector('[data-question]').value = question.question || '';
+  row.querySelector('[data-answer]').value = question.answer || '';
+  row.querySelector('[data-passages]').value = (question.relevant_passages || []).join('\n');
+  row.querySelector('.remove-question').addEventListener('click', () => {
+    row.remove();
+    renumberQuestions();
+  });
+  benchmarkQuestions.appendChild(row);
+  renumberQuestions();
+}
+
+function renumberQuestions() {
+  benchmarkQuestions.querySelectorAll('.benchmark-question-row').forEach((row, index) => {
+    row.querySelector('strong').textContent = \`Question \${index + 1}\`;
+  });
+}
+
+function readBenchmarkQuestions() {
+  const rows = [...benchmarkQuestions.querySelectorAll('.benchmark-question-row')];
+  const questions = [];
+  for (let index = 0; index < rows.length; index++) {
+    const row = rows[index];
+    const question = row.querySelector('[data-question]').value.trim();
+    if (!question) throw new Error(\`Question \${index + 1}: question text is required.\`);
+    questions.push({
+      question,
+      answer: row.querySelector('[data-answer]').value.trim() || null,
+      relevant_passages: row.querySelector('[data-passages]').value.split('\n').map(value => value.trim()).filter(Boolean),
+    });
+  }
+  if (!questions.length) throw new Error('Add at least one benchmark question.');
+  return questions;
+}
+
+function openBenchmarkModal() {
+  editingBenchmarkId = null;
+  benchmarkForm.reset();
+  benchmarkQuestions.replaceChildren();
+  questionRow();
+  document.querySelector('#benchmark-modal .drawer-header h2').textContent = 'New benchmark';
+  document.getElementById('save-benchmark').textContent = 'Create benchmark';
+  benchmarkModal.classList.remove('hidden');
+}
+
+async function editBenchmark(id) {
+  try {
+    const benchmark = await api('GET', \`/benchmarks/\${id}\`);
+    editingBenchmarkId = id;
+    benchmarkForm.reset();
+    benchmarkQuestions.replaceChildren();
+    benchmarkForm.elements.name.value = benchmark.name;
+    await loadBenchmarkDatasetOptions(benchmark.dataset_id);
+    (benchmark.questions || []).forEach(questionRow);
+    document.querySelector('#benchmark-modal .drawer-header h2').textContent = 'View / edit benchmark';
+    document.getElementById('save-benchmark').textContent = 'Save changes';
+    benchmarkModal.classList.remove('hidden');
+  } catch (err) { alert(err.message); }
+}
+
+async function loadBenchmarkDatasetOptions(selectedId) {
+  const select = benchmarkForm.elements.dataset_id;
+  const datasets = await api('GET', '/datasets');
+  select.replaceChildren(new Option('Choose a dataset…', ''));
+  datasets.forEach(dataset => select.add(new Option(\`\${dataset.name} (\${dataset.id.slice(0, 8)})\`, dataset.id)));
+  select.value = selectedId || '';
+}
+
 function closeBenchmarkModal() {
   benchmarkModal.classList.add('hidden');
   benchmarkForm.reset();
+  benchmarkQuestions.replaceChildren();
+  editingBenchmarkId = null;
   const s = document.getElementById('benchmark-status');
   if (s) { s.textContent = ''; s.className = 'form-status'; }
+  const importStatus = document.getElementById('benchmark-import-status');
+  if (importStatus) { importStatus.textContent = ''; importStatus.className = 'form-status'; }
 }
 
 document.getElementById('btn-new-benchmark').addEventListener('click', openBenchmarkModal);
 document.getElementById('close-benchmark-modal').addEventListener('click', closeBenchmarkModal);
 document.getElementById('cancel-benchmark').addEventListener('click', closeBenchmarkModal);
+document.getElementById('add-benchmark-question').addEventListener('click', () => questionRow());
 benchmarkModal.addEventListener('click', e => { if (e.target === benchmarkModal) closeBenchmarkModal(); });
+
+function parseCsv(text) {
+  const rows = [];
+  let row = [], field = '', quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '"' && quoted && text[i + 1] === '"') { field += '"'; i++; }
+    else if (ch === '"') quoted = !quoted;
+    else if (ch === ',' && !quoted) { row.push(field); field = ''; }
+    else if ((ch === '\n' || ch === '\r') && !quoted) {
+      if (ch === '\r' && text[i + 1] === '\n') i++;
+      row.push(field); field = '';
+      if (row.some(cell => cell.trim())) rows.push(row);
+      row = [];
+    } else field += ch;
+  }
+  if (field || row.length) { row.push(field); if (row.some(cell => cell.trim())) rows.push(row); }
+  if (quoted) throw new Error('CSV import: unterminated quoted field.');
+  if (!rows.length) throw new Error('CSV import: file is empty.');
+  const header = rows.shift().map(value => value.trim().toLowerCase());
+  const questionColumn = header.indexOf('question');
+  if (questionColumn < 0) throw new Error('CSV import: missing required "question" column.');
+  return rows.map((values, index) => {
+    if (!values[questionColumn]?.trim()) throw new Error(\`CSV row \${index + 2}, field question: value is required.\`);
+    const get = name => { const column = header.indexOf(name); return column >= 0 ? (values[column] || '').trim() : ''; };
+    const passages = get('relevant_passages') || get('relevant_passage');
+    return { question: values[questionColumn].trim(), answer: get('answer') || get('expected_answer') || null,
+      relevant_passages: passages ? passages.split('|').map(value => value.trim()).filter(Boolean) : [] };
+  });
+}
+
+benchmarkImport.addEventListener('change', async () => {
+  const file = benchmarkImport.files?.[0];
+  if (!file) return;
+  const status = document.getElementById('benchmark-import-status');
+  try {
+    const text = await file.text();
+    let questions;
+    if (file.name.toLowerCase().endsWith('.json')) {
+      const parsed = JSON.parse(text);
+      questions = Array.isArray(parsed) ? parsed : parsed.questions;
+      if (!Array.isArray(questions)) throw new Error('JSON import: expected an array or an object with a questions array.');
+      questions = questions.map((item, index) => {
+        if (!item || typeof item.question !== 'string' || !item.question.trim())
+          throw new Error(\`JSON row \${index + 1}, field question: value is required.\`);
+        return { question: item.question.trim(), answer: item.answer || item.expected_answer || null,
+          relevant_passages: Array.isArray(item.relevant_passages) ? item.relevant_passages : [] };
+      });
+    } else questions = parseCsv(text);
+    if (!questions.length) throw new Error('Import file has no questions.');
+    benchmarkQuestions.replaceChildren();
+    questions.forEach(questionRow);
+    status.textContent = \`Imported \${questions.length} questions. Review them before saving.\`;
+    status.className = 'form-status success';
+  } catch (err) {
+    status.textContent = err.message;
+    status.className = 'form-status error';
+  } finally { benchmarkImport.value = ''; }
+});
 
 benchmarkForm.addEventListener('submit', async e => {
   e.preventDefault();
-  const fd = new FormData(benchmarkForm);
-  const payload = { name: fd.get('name'), dataset_id: fd.get('dataset_id'), questions: [] };
+  const saveButton = document.getElementById('save-benchmark');
+  saveButton.disabled = true;
   try {
-    await api('POST', '/benchmarks', payload);
-    showStatus('benchmark-status', '✓ Benchmark created!', 'success');
+    const fd = new FormData(benchmarkForm);
+    const payload = { name: fd.get('name'), dataset_id: fd.get('dataset_id'), questions: readBenchmarkQuestions() };
+    if (!payload.dataset_id) throw new Error('Choose a dataset.');
+    if (editingBenchmarkId) await api('PUT', \`/benchmarks/\${editingBenchmarkId}\`, payload);
+    else await api('POST', '/benchmarks', payload);
+    showStatus('benchmark-status', editingBenchmarkId ? '✓ Benchmark updated!' : '✓ Benchmark created!', 'success');
     loadBenchmarks();
     loadOverview();
-    setTimeout(closeBenchmarkModal, 800);
+    setTimeout(closeBenchmarkModal, 700);
   } catch (err) {
-    showStatus('benchmark-status', `✗ ${err.message}`, 'error');
-  }
+    showStatus('benchmark-status', \`✗ \${err.message}\`, 'error');
+  } finally { saveButton.disabled = false; }
+});
+
+// Results detail and comparison.
+const resultsModal = document.getElementById('results-modal');
+document.getElementById('close-results-modal').addEventListener('click', () => resultsModal.classList.add('hidden'));
+resultsModal.addEventListener('click', e => { if (e.target === resultsModal) resultsModal.classList.add('hidden'); });
+
+function metricLabel(value, digits = 3) {
+  return value === null || value === undefined ? 'Unavailable' :
+    (typeof value === 'number' ? value.toFixed(digits) : String(value));
+}
+
+async function openExperimentResults(id) {
+  resultsModal.classList.remove('hidden');
+  document.getElementById('results-title').textContent = 'Experiment results';
+  const content = document.getElementById('results-content');
+  content.textContent = 'Loading results…';
+  try {
+    const response = await api('GET', \`/experiments/\${id}/results\`);
+    if (response.status === 'running' || response.status === 'pending') {
+      content.innerHTML = \`<p>Experiment status: <strong>\${escHtml(response.status)}</strong>. Results are not available yet.</p>\`;
+      return;
+    }
+    if (response.status === 'failed') {
+      content.innerHTML = \`<p class="error-text">Run failed: \${escHtml(response.error || 'No error details available.')}</p>\`;
+      return;
+    }
+    const result = response.results || {};
+    const metrics = result.metrics || response.summary || {};
+    const cards = ['precision_at_k','recall_at_k','mrr','ndcg_at_k','avg_latency_ms','total_tokens','cost']
+      .map(key => \`<div class="result-metric"><span>\${escHtml(key.replaceAll('_',' '))}</span><strong>\${metricLabel(metrics[key], key.includes('latency') ? 1 : 3)}</strong></div>\`).join('');
+    const cases = (result.cases || []).map((item, index) => \`
+      <article class="result-case">
+        <h3>Q\${index + 1}. \${escHtml(item.question)}</h3>
+        <p><strong>Answer</strong><br>\${escHtml(item.answer || 'No answer returned.')}</p>
+        <p><strong>Expected answer</strong><br>\${escHtml(item.expected_answer || 'Not provided')}</p>
+        <p><strong>Latency</strong>: \${metricLabel(item.latency_ms, 1)} ms · <strong>Cost</strong>: \${metricLabel(item.cost)}</p>
+        <details><summary>Retrieved evidence (\${(item.retrieved || []).length})</summary>
+          \${(item.retrieved || []).map(doc => \`<div class="evidence-item"><strong>\${escHtml(doc.filename)} · chunk \${doc.chunk_index}</strong><p>\${escHtml(doc.text)}</p></div>\`).join('') || '<p>No evidence retrieved.</p>'}
+        </details>
+      </article>\`).join('');
+    content.innerHTML = \`<div class="results-metrics">\${cards}</div>
+      <p class="selector-help">Retrieval metrics are averaged only over questions with relevant passages. Cost is unavailable unless the provider reports a usable price.</p>
+      \${cases || '<p>No question results were recorded.</p>'}\`;
+  } catch (err) { content.innerHTML = \`<p class="error-text">\${escHtml(err.message)}</p>\`; }
+}
+
+async function pollExperiment(id, attempt) {
+  if (attempt > 90) { loadExperiments(); return; }
+  try {
+    const result = await api('GET', \`/experiments/\${id}/results\`);
+    if (result.status === 'running' || result.status === 'pending') {
+      setTimeout(() => pollExperiment(id, attempt + 1), 1000);
+    } else {
+      loadExperiments();
+      loadOverview();
+      if (result.status === 'done') openExperimentResults(id);
+      else if (result.status === 'failed') alert(\`Experiment failed: \${result.error || 'Unknown error'}\`);
+    }
+  } catch { loadExperiments(); }
+}
+
+document.getElementById('btn-compare-experiments').addEventListener('click', async () => {
+  const ids = [...document.querySelectorAll('[data-select-exp]:checked')].map(input => input.dataset.selectExp);
+  if (ids.length < 2) return;
+  const content = document.getElementById('results-content');
+  resultsModal.classList.remove('hidden');
+  document.getElementById('results-title').textContent = 'Compare experiments';
+  content.textContent = 'Comparing selected experiments…';
+  try {
+    const comparison = await api('POST', '/experiments/compare', { experiment_ids: ids });
+    const metricKeys = [...new Set(comparison.experiments.flatMap(item => Object.keys(item.summary || {})))];
+    const headers = comparison.experiments.map(item => \`<th>\${escHtml(item.name)}</th>\`).join('');
+    const rows = metricKeys.map(key => \`<tr><th>\${escHtml(key.replaceAll('_',' '))}</th>\${comparison.experiments.map(item => \`<td>\${metricLabel(item.summary[key])}</td>\`).join('')}</tr>\`).join('');
+    const diffs = Object.entries(comparison.configuration_differences || {}).map(([key, values]) =>
+      \`<li><strong>\${escHtml(key)}</strong>: \${Object.entries(values).map(([id, value]) => {
+        const name = comparison.experiments.find(item => item.id === id)?.name || id;
+        return \`\${escHtml(name)} = \${escHtml(JSON.stringify(value))}\`;
+      }).join('; ')}</li>\`).join('');
+    content.innerHTML = \`<div class="table-scroll"><table class="data-table"><thead><tr><th>Metric</th>\${headers}</tr></thead><tbody>\${rows}</tbody></table></div>
+      <h3>Configuration differences</h3>\${diffs ? \`<ul>\${diffs}</ul>\` : '<p>Selected configurations are identical.</p>'}\`;
+  } catch (err) { content.innerHTML = \`<p class="error-text">\${escHtml(err.message)}</p>\`; }
 });
 
 // ── Keyboard shortcuts ────────────────────────────────────────
