@@ -256,14 +256,34 @@ experimentForm.addEventListener('submit', async e => {
     },
   };
 
+  const submitButton = experimentForm.querySelector('[type="submit"]');
+  if (!payload.benchmark_id) {
+    showStatus('form-status', 'Select a benchmark with at least one evaluation question before running.', 'error');
+    return;
+  }
+
+  submitButton.disabled = true;
+  submitButton.textContent = 'Creating experiment…';
   try {
-    await api('POST', '/experiments', payload);
-    showStatus('form-status', '✓ Experiment saved!', 'success');
-    loadExperiments();
-    loadOverview();
-    setTimeout(closeDrawer, 900);
+    const experiment = await api('POST', '/experiments', payload);
+    showStatus('form-status', 'Experiment saved. Running retrieval and evaluation now…', '');
+    submitButton.textContent = 'Running experiment…';
+    await api('POST', `/experiments/${experiment.id}/run`);
+    showStatus('form-status', '✓ Experiment completed. Opening results…', 'success');
+    await loadExperiments();
+    await loadOverview();
+    await loadBenchmarks();
+    setTimeout(async () => {
+      closeDrawer();
+      await openExperimentResults(experiment.id);
+    }, 500);
   } catch (err) {
-    showStatus('form-status', `✗ ${err.message}`, 'error');
+    showStatus('form-status', `✗ ${err.message}. Check the experiment status and error details in the Experiments list.`, 'error');
+    await loadExperiments();
+    await loadOverview();
+  } finally {
+    submitButton.disabled = false;
+    submitButton.textContent = 'Create & run experiment';
   }
 });
 
