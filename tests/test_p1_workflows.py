@@ -14,6 +14,15 @@ def _client(tmp_path: Path, monkeypatch):
     importlib.reload(storage)
     importlib.reload(model_registry)
     importlib.reload(main)
+    # Tests stay offline and exercise API persistence without real provider credentials.
+    monkeypatch.setattr(main, "get_model_runtime_config", lambda model_id: {
+        "id": model_id, "provider": "openai", "model_id": "mock-generation",
+        "api_key": "test", "base_url": None,
+    })
+    monkeypatch.setattr(main, "get_embedding_model_runtime_config", lambda model_id: {
+        "id": model_id, "provider": "openai", "model_id": "mock-embedding",
+        "api_key": "test", "base_url": None,
+    })
     return TestClient(main.app), main
 
 
@@ -45,13 +54,25 @@ def _experiment(client: TestClient, dataset_id: str, benchmark_id: str, name: st
         "config": {
             "embedding_model": "configured-embedding-id",
             "generation_model": "configured-generation-id",
+            "retrieval_method": "bm25",
             "overlap": 20,
             "chunk_size": 100,
+            "top_k": 2,
             "reranking": False,
+            "query_rewrite": False,
         },
     })
     assert response.status_code == 201, response.text
     return response.json()["id"]
+
+
+def _upload_document(client: TestClient, dataset_id: str) -> None:
+    response = client.post(
+        f"/api/datasets/{dataset_id}/documents",
+        files=[("files", ("system.txt", b"The document explains the system.", "text/plain"))],
+    )
+    assert response.status_code == 200
+    assert response.json()["document_count"] == 1
 
 
 def test_benchmark_requires_questions_and_can_be_edited(tmp_path: Path, monkeypatch) -> None:
@@ -70,7 +91,6 @@ def test_benchmark_requires_questions_and_can_be_edited(tmp_path: Path, monkeypa
 
     updated = client.put(f"/api/benchmarks/{benchmark_id}", json={
         "name": "updated-benchmark",
-        "dataset_id": dataset_id,
         "questions": [{"question": "What is the system?", "answer": "A test system.", "relevant_passages": []}],
     })
     assert updated.status_code == 200
@@ -94,33 +114,22 @@ def test_cross_dataset_benchmark_is_rejected(tmp_path: Path, monkeypatch) -> Non
 def test_run_persists_results_and_comparison(tmp_path: Path, monkeypatch) -> None:
     client, main = _client(tmp_path, monkeypatch)
     dataset_id = _dataset(client)
+    _upload_document(client, dataset_id)
     benchmark_id = _benchmark(client, dataset_id)
+    monkeypatch.setattr(main, "_generate_answer", lambda *args: (
+        "The document explains the system.", {"total_tokens": 7}
+    ))
 
-    def fake_execute(dataset, documents, questions, config):
-        return {
-            "cases": [{
-                "question": questions[0]["question"],
-                "answer": "A real answer from the mocked executor.",
-                "retrieved": [],
-                "metrics": {"precision_at_k": None, "recall_at_k": None, "mrr": None, "ndcg_at_k": None},
-                "latency_ms": 12.5,
-                "cost": None,
-            }],
-            "metrics": {"mrr": None, "avg_latency_ms": 12.5, "cost": None},
-            "question_count": 1,
-            "evaluated_count": 0,
-        }
-
-    monkeypatch.setattr(main, "execute_experiment", fake_execute)
     first = _experiment(client, dataset_id, benchmark_id, "run-one")
     second = _experiment(client, dataset_id, benchmark_id, "run-two")
     for experiment_id in (first, second):
         response = client.post(f"/api/experiments/{experiment_id}/run")
-        assert response.status_code == 202
+        assert response.status_code == 200
+        assert response.json()["status"] == "done"
         results = client.get(f"/api/experiments/{experiment_id}/results")
         assert results.status_code == 200
         assert results.json()["status"] == "done"
-        assert results.json()["results"]["cases"][0]["answer"].startswith("A real answer")
+        assert results.json()["results"]["questions"][0]["generated_answer"] == "The document explains the system."
 
     compared = client.post("/api/experiments/compare", json={"experiment_ids": [first, second]})
     assert compared.status_code == 200
@@ -130,12 +139,13 @@ def test_run_persists_results_and_comparison(tmp_path: Path, monkeypatch) -> Non
 def test_failed_run_persists_failure_details(tmp_path: Path, monkeypatch) -> None:
     client, main = _client(tmp_path, monkeypatch)
     dataset_id = _dataset(client)
+    _upload_document(client, dataset_id)
     benchmark_id = _benchmark(client, dataset_id)
     experiment_id = _experiment(client, dataset_id, benchmark_id)
-    monkeypatch.setattr(main, "execute_experiment", lambda *args: (_ for _ in ()).throw(RuntimeError("provider unavailable")))
+    monkeypatch.setattr(main, "_generate_answer", lambda *args: (_ for _ in ()).throw(RuntimeError("provider unavailable")))
 
     response = client.post(f"/api/experiments/{experiment_id}/run")
-    assert response.status_code == 202
+    assert response.status_code == 502
     result = client.get(f"/api/experiments/{experiment_id}/results").json()
     assert result["status"] == "failed"
     assert "provider unavailable" in result["error"]
