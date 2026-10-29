@@ -9,8 +9,9 @@ from fastapi.testclient import TestClient
 
 def _client(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("RAGSTUDIO_DATA_DIR", str(tmp_path))
-    from app import main
-    from ragstudio import model_registry, storage
+    import ragstudio.storage as storage
+    import ragstudio.model_registry as model_registry
+    import app.main as main
 
     importlib.reload(storage)
     importlib.reload(model_registry)
@@ -156,3 +157,161 @@ def test_experiment_requires_explicit_generation_and_embedding_models(tmp_path: 
     details = response.json()["detail"]
     missing_fields = {item["loc"][-1] for item in details}
     assert {"generation_model", "embedding_model"}.issubset(missing_fields)
+
+
+def test_benchmark_questions_create_edit_and_reopen(tmp_path: Path, monkeypatch) -> None:
+    client, _ = _client(tmp_path, monkeypatch)
+    dataset = client.post("/api/datasets", json={"name": "qa dataset", "description": "", "source_type": "text"})
+    assert dataset.status_code == 201
+    dataset_id = dataset.json()["id"]
+    created = client.post("/api/benchmarks", json={
+        "name": "support QA",
+        "dataset_id": dataset_id,
+        "questions": [{"question": "What is the policy?", "answer": "Refunds are allowed.", "relevant_passages": ["Refunds are allowed within 30 days."]}],
+    })
+    assert created.status_code == 201
+    benchmark_id = created.json()["id"]
+    reopened = client.get(f"/api/benchmarks/{benchmark_id}")
+    assert reopened.json()["questions"][0]["answer"] == "Refunds are allowed."
+    updated = client.put(f"/api/benchmarks/{benchmark_id}", json={
+        "name": "support QA v2",
+        "questions": [{"question": "How long is the refund window?", "answer": "30 days", "relevant_passages": ["Refunds are allowed within 30 days."]}],
+    })
+    assert updated.status_code == 200
+    assert updated.json()["question_count"] == 1
+    assert client.get(f"/api/benchmarks/{benchmark_id}").json()["questions"][0]["answer"] == "30 days"
+
+
+def test_retrieval_strategies_and_chunking_are_deterministic(tmp_path: Path, monkeypatch) -> None:
+    client, _ = _client(tmp_path, monkeypatch)
+    import app.main as main
+
+    chunks = [
+        {"text": "cat cat lexical match", "filename": "a.txt", "document_id": "a", "chunk_index": 0},
+        {"text": "feline semantic match", "filename": "b.txt", "document_id": "b", "chunk_index": 0},
+        {"text": "unrelated ocean passage", "filename": "c.txt", "document_id": "c", "chunk_index": 0},
+    ]
+    assert main._bm25_scores("cat", [item["text"] for item in chunks])[0] > main._bm25_scores("cat", [item["text"] for item in chunks])[1]
+    monkeypatch.setattr(main, "_embed_texts", lambda runtime, texts: [
+        [1.0, 0.0] if text == "cat" or "feline" in text else ([0.8, 0.2] if "cat cat" in text else [0.0, 1.0])
+        for text in texts
+    ])
+    dense = main._rank_chunks("cat", chunks, "dense", {"provider": "test"}, 1)
+    lexical = main._rank_chunks("cat", chunks, "bm25", None, 1)
+    hybrid = main._rank_chunks("cat", chunks, "hybrid_rrf", {"provider": "test"}, 2)
+    assert dense[0]["filename"] == "b.txt"
+    assert lexical[0]["filename"] == "a.txt"
+    assert len(hybrid) == 2
+    assert hybrid[0]["filename"] == "a.txt"
+    assert hybrid[1]["filename"] == "b.txt"
+    assert main._chunk_document("a b c d", "fixed-size", 3, 1) == ["a b c", "c d"]
+    sentence_chunks = main._chunk_document("Paragraph one has words.\n\nParagraph two has words.", "sentence-aware", 100, 0)
+    recursive_chunks = main._chunk_document("Paragraph one has words.\n\nParagraph two has words.", "recursive", 100, 0)
+    assert sentence_chunks == ["Paragraph one has words. Paragraph two has words."]
+    assert recursive_chunks == ["Paragraph one has words.", "Paragraph two has words."]
+    assert main._question_metrics([], chunks, [], 2)["mrr"] is None
+
+
+def test_openai_embedding_requests_are_batched_and_ordered(tmp_path: Path, monkeypatch) -> None:
+    client, _ = _client(tmp_path, monkeypatch)
+    import app.main as main
+    batch_sizes = []
+
+    def fake_provider_json(url, payload, headers=None):
+        values = payload["input"]
+        batch_sizes.append(len(values))
+        return {"data": [
+            {"index": index, "embedding": [float(value.split("-")[1])]}
+            for index, value in enumerate(values)
+        ]}
+
+    monkeypatch.setattr(main, "_provider_json", fake_provider_json)
+    texts = [f"item-{index}" for index in range(130)]
+    vectors = main._embed_texts({
+        "provider": "openai", "model_id": "mock-embedding", "api_key": "test"
+    }, texts)
+    assert batch_sizes == [128, 2]
+    assert vectors == [[float(index)] for index in range(130)]
+
+
+def test_experiment_execution_persists_real_results_and_failure(tmp_path: Path, monkeypatch) -> None:
+    client, _ = _client(tmp_path, monkeypatch)
+    import app.main as main
+
+    monkeypatch.setattr(main, "get_model_runtime_config", lambda model_id: {
+        "id": model_id, "provider": "openai", "model_id": "mock-generation", "api_key": "test", "base_url": None
+    })
+    monkeypatch.setattr(main, "get_embedding_model_runtime_config", lambda model_id: {
+        "id": model_id, "provider": "openai", "model_id": "mock-embedding", "api_key": "test", "base_url": None
+    })
+    monkeypatch.setattr(main, "_generate_answer", lambda runtime, question, evidence: ("The sky is blue.", {"total_tokens": 7}))
+    dataset = client.post("/api/datasets", json={"name": "sky docs", "description": "", "source_type": "text"}).json()
+    uploaded = client.post(
+        f"/api/datasets/{dataset['id']}/documents",
+        files=[("files", ("sky.txt", b"The sky is blue.", "text/plain"))],
+    )
+    assert uploaded.status_code == 200
+    benchmark = client.post("/api/benchmarks", json={
+        "name": "sky QA",
+        "dataset_id": dataset["id"],
+        "questions": [{"question": "What color is the sky?", "answer": "Blue.", "relevant_passages": ["The sky is blue."]}],
+    }).json()
+    config = {
+        "chunking_strategy": "fixed-size", "chunk_size": 100, "overlap": 0,
+        "retrieval_method": "bm25", "top_k": 1, "reranking": False,
+        "query_rewrite": False, "embedding_model": "embedding-config-id",
+        "generation_model": "generation-config-id",
+    }
+    experiment = client.post("/api/experiments", json={
+        "name": "bm25 run", "dataset_id": dataset["id"], "benchmark_id": benchmark["id"], "config": config,
+    })
+    assert experiment.status_code == 201
+    experiment_id = experiment.json()["id"]
+    run = client.post(f"/api/experiments/{experiment_id}/run")
+    assert run.status_code == 200
+    assert run.json()["status"] == "done"
+    results = client.get(f"/api/experiments/{experiment_id}/results").json()["results"]
+    assert results["questions"][0]["generated_answer"] == "The sky is blue."
+    assert results["summary"]["mrr"] == 1.0
+    assert results["summary"]["cost_usd"] is None
+
+    second = client.post("/api/experiments", json={
+        "name": "bm25 comparison run", "dataset_id": dataset["id"], "benchmark_id": benchmark["id"], "config": config,
+    }).json()
+    assert client.post(f"/api/experiments/{second['id']}/run").status_code == 200
+    comparison = client.post("/api/experiments/compare", json={
+        "experiment_ids": [experiment_id, second["id"]],
+    })
+    assert comparison.status_code == 200
+
+    # Editing the same benchmark ID must not make different evaluation sets comparable.
+    assert client.put(f"/api/benchmarks/{benchmark['id']}", json={
+        "name": "sky QA revised",
+        "questions": [{"question": "Which planet do we live on?", "answer": "Earth.", "relevant_passages": ["The sky is blue."]}],
+    }).status_code == 200
+    assert client.post(f"/api/experiments/{second['id']}/run").status_code == 200
+    incompatible = client.post("/api/experiments/compare", json={
+        "experiment_ids": [experiment_id, second["id"]],
+    })
+    assert incompatible.status_code == 409
+
+    # Restore the original evaluation set but change corpus contents: comparison must still fail.
+    assert client.put(f"/api/benchmarks/{benchmark['id']}", json={
+        "name": "sky QA",
+        "questions": [{"question": "What color is the sky?", "answer": "Blue.", "relevant_passages": ["The sky is blue."]}],
+    }).status_code == 200
+    extra = client.post(
+        f"/api/datasets/{dataset['id']}/documents",
+        files=[("files", ("extra.txt", b"A new paragraph in the corpus.", "text/plain"))],
+    )
+    assert extra.status_code == 200
+    assert client.post(f"/api/experiments/{second['id']}/run").status_code == 200
+    different_corpus = client.post("/api/experiments/compare", json={
+        "experiment_ids": [experiment_id, second["id"]],
+    })
+    assert different_corpus.status_code == 409
+
+    monkeypatch.setattr(main, "_generate_answer", lambda *args: (_ for _ in ()).throw(RuntimeError("mock provider failure")))
+    failed = client.post(f"/api/experiments/{experiment_id}/run")
+    assert failed.status_code == 502
+    assert client.get(f"/api/experiments/{experiment_id}/results").json()["status"] == "failed"

@@ -105,7 +105,17 @@ Open **Models** to configure generation and embedding models before creating an 
 - Select configured generation and embedding models in the experiment form. The selectors submit the saved configuration IDs instead of arbitrary model names.
 - Provider API keys are encrypted before being stored in SQLite. The encryption key is kept in `.data/.model_encryption_key` with restrictive file permissions and is never returned by the API. Back up this file with the database if you need to preserve access to saved credentials. Protect the entire data directory and do not commit it.
 
-Model discovery validates credentials and lists compatible models. Experiment execution is a separate roadmap item; configuring a model does not itself run an inference, create embeddings, or execute a benchmark.
+Model discovery validates credentials and lists compatible models. After creating a benchmark and uploading dataset documents, select the configured models in an experiment and use **Run** to execute retrieval, generation, and evaluation. Reranking and query rewriting remain unavailable until implemented.
+
+## Benchmarks, retrieval, and experiment execution
+
+- Create benchmarks with one or more evaluation questions. Each question can include an expected answer and one or more relevant passage strings. Questions can be edited after saving or imported from JSON or CSV. CSV headers must include `question`; optional headers are `answer` (or `expected_answer`) and `relevant_passages` (separate passages with `||`). Import errors include the row where possible.
+- Run an experiment from the Experiments table. A run requires uploaded text documents and a benchmark with questions. Status, start/completion timestamps, failure details, summary metrics, and per-question results persist in SQLite.
+- Implemented retrieval choices: **BM25** (lexical term-frequency ranking), **Dense** (provider embedding cosine similarity), and **Hybrid RRF** (reciprocal-rank fusion of BM25 and dense rankings). Dense and hybrid embed dataset chunks once per run and reuse those vectors across questions.
+- Implemented chunking choices: fixed-size word windows, sentence-aware grouping, and recursive paragraph/sentence splitting. Chunk size/overlap and top-k are validated.
+- Reranking and query rewriting are shown as unavailable in the UI and rejected by the API while no real implementation is connected. They are not silently simulated.
+- Retrieval metrics use explicit `relevant_passages` labels: a chunk is relevant when the normalized reference passage is contained in the chunk (or vice versa). Precision@k, Recall@k, MRR, and binary NDCG@k are unavailable when no relevance labels are supplied. Generated answers and retrieved evidence are shown per question. Latency is measured; token usage is shown when returned by the provider. Cost is unavailable unless provider pricing is configured.
+- Compare two or more completed runs only when they share the same dataset and benchmark. The comparison shows metric summaries, configuration differences, and metric deltas against the first selected run.
 
 For production deployments, mount a persistent volume at the configured data directory and back it up along with the application.
 
@@ -166,31 +176,3 @@ The starter backend includes:
 - dashboard UI for comparing a few pipeline shapes
 
 This is intentionally a strong foundation for the eventual full evaluation engine.
-
-
-## Benchmarking and experiment execution
-
-Benchmarks contain one or more saved questions. Each question can include an expected answer and relevant passages. Use **View / Edit** to update a benchmark, add or remove cases, or import a JSON/CSV file. JSON accepts an array of question objects or an object with a questions array. CSV requires a question header and optionally accepts answer / expected_answer and relevant_passages columns. Separate multiple relevant passages in CSV with |.
-
-Create an experiment using a dataset, a benchmark from that same dataset, and configured generation and embedding models. Select **Run** to execute it. Runs are marked running, then done or failed; start/finish timestamps, errors, per-question outputs, and aggregate metrics are persisted in SQLite. The provider must be reachable from the server. Open **Results** to inspect generated answers, expected answers, retrieved chunks, latency, token usage when reported by the provider, and retrieval metrics.
-
-Implemented retrieval methods:
-- **BM25**: local sparse lexical ranking.
-- **Dense**: cosine similarity over vectors returned by the selected embedding provider.
-- **Hybrid RRF**: reciprocal-rank fusion of BM25 and dense rankings.
-- **Chunking**: fixed-size, sentence-aware, and recursive splitting.
-- **Query rewriting**: asks the configured generation model to rewrite the search query.
-- **Reranking**: reorders the retrieved candidates by lexical query overlap. This is a lightweight lexical reranker, not a trained cross-encoder.
-
-Precision@k, Recall@k, MRR, and NDCG@k are only computed for questions with relevant passages. These metrics use passage-to-chunk lexical matching and should be interpreted as an approximate retrieval evaluation, not semantic relevance judgments. Metrics without relevant passages are shown as unavailable. Latency is measured by the application. Token usage is included only when returned by the provider. Monetary cost is deliberately unavailable because provider pricing is not calculated.
-
-Use **Compare selected** to compare two or more completed experiments. Runs must share the same dataset and benchmark; the comparison shows measured aggregate metrics and configuration differences.
-
-### Tests
-
-Install development dependencies and run the deterministic test suite:
-
-    python -m pip install -e ".[dev]"
-    pytest
-
-Provider API tests should use mocks and do not require paid credentials. Live experiment runs require configured generation and embedding models.

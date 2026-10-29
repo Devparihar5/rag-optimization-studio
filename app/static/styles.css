@@ -675,24 +675,3 @@ select.form-input { cursor: pointer; }
   .configured-model-icon { width: 34px; height: 34px; flex-basis: 34px; }
   .configured-model .btn { padding: 6px 8px; }
 }
-
-
-/* Benchmark authoring and real experiment result views. */
-.benchmark-questions { display: flex; flex-direction: column; gap: 14px; }
-.benchmark-question-row { border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; display: flex; flex-direction: column; gap: 12px; }
-.benchmark-question-heading { display: flex; align-items: center; justify-content: space-between; }
-.benchmark-question-heading strong { color: var(--text); }
-.import-button { cursor: pointer; align-items: center; justify-content: center; }
-.results-modal-box { max-width: 980px; max-height: 85vh; overflow-y: auto; }
-.results-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin: 14px 0; }
-.result-metric { border: 1px solid var(--border); background: var(--surface-2); padding: 12px; border-radius: var(--radius); }
-.result-metric span { display: block; color: var(--text-muted); text-transform: capitalize; font-size: 12px; }
-.result-metric strong { display: block; color: var(--text); font-size: 18px; overflow-wrap: anywhere; }
-.result-case { border-top: 1px solid var(--border); padding: 16px 0; display: flex; flex-direction: column; gap: 10px; }
-.result-case h3 { color: var(--text); font-size: 14px; }
-.result-case p { overflow-wrap: anywhere; }
-.evidence-item { border-left: 3px solid var(--accent); padding: 10px 12px; margin: 10px 0; background: var(--surface-2); }
-.evidence-item strong { color: var(--text); }
-.evidence-item p { margin-top: 6px; white-space: pre-wrap; }
-.table-scroll { overflow-x: auto; margin: 12px 0; }
-#btn-compare-experiments:disabled, button:disabled { opacity: .5; cursor: not-allowed; }
