@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from src.ragstudio.pipeline import (
+from ragstudio.pipeline import (
     _reciprocal_rank_fusion,
     bm25_scores,
     chunk_text,
