@@ -396,6 +396,9 @@ async def update_benchmark(benchmark_id: str, body: BenchmarkUpdateRequest) -> d
             raise HTTPException(status_code=404, detail="Benchmark not found")
         if db.execute("SELECT 1 FROM datasets WHERE id=?", (body.dataset_id,)).fetchone() is None:
             raise HTTPException(status_code=404, detail="Dataset not found")
+        linked = db.execute("SELECT dataset_id FROM experiments WHERE benchmark_id=?", (benchmark_id,)).fetchall()
+        if any(item["dataset_id"] != body.dataset_id for item in linked):
+            raise HTTPException(status_code=409, detail="Cannot move this benchmark to another dataset while linked experiments use it")
         db.execute(
             "UPDATE benchmarks SET name=?,dataset_id=?,questions_json=? WHERE id=?",
             (body.name, body.dataset_id,
@@ -419,6 +422,8 @@ async def get_benchmark(benchmark_id: str) -> dict[str, Any]:
 
 @app.post("/api/experiments", response_model=ExperimentRecord, status_code=201, tags=["experiments"])
 async def create_experiment(body: ExperimentCreateRequest) -> dict[str, Any]:
+    if body.config.overlap >= body.config.chunk_size:
+        raise HTTPException(status_code=422, detail="Chunk overlap must be smaller than chunk size")
     experiment_id = str(uuid.uuid4())
     created_at = now_iso()
     with connect() as db:
