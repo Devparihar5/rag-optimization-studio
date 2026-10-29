@@ -8,9 +8,8 @@ from fastapi.testclient import TestClient
 
 def _client(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("RAGSTUDIO_DATA_DIR", str(tmp_path))
-    import src.ragstudio.storage as storage
-    import src.ragstudio.model_registry as model_registry
-    import app.main as main
+    from app import main
+    from ragstudio import model_registry, storage
 
     importlib.reload(storage)
     importlib.reload(model_registry)
