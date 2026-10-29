@@ -42,3 +42,32 @@ def test_sentence_aware_chunking_keeps_sentence_boundaries_when_possible() -> No
     chunks = chunk_text("First short sentence. Second short sentence. Third short sentence.", 5, 0, "sentence-aware")
     assert chunks[0] == "First short sentence."
     assert all(chunk.strip() for chunk in chunks)
+
+
+def test_dense_retrieval_uses_embedding_vectors_and_can_differ_from_bm25(monkeypatch) -> None:
+    from ragstudio import pipeline
+
+    monkeypatch.setattr(pipeline, "get_embedding_model_runtime_config", lambda _model_id: {"provider": "mock", "model_id": "embed"})
+    monkeypatch.setattr(pipeline, "get_model_runtime_config", lambda _model_id: {"provider": "mock", "model_id": "generate"})
+
+    def fake_vectors(_config, texts):
+        if len(texts) > 1:
+            return [[1.0, 0.0], [0.0, 1.0]]
+        return [[0.0, 1.0]]
+
+    monkeypatch.setattr(pipeline, "_embedding_vectors", fake_vectors)
+    monkeypatch.setattr(pipeline, "_generate", lambda *args, **kwargs: ("mock answer", {}))
+    docs = [
+        {"id": "doc1", "filename": "lexical.txt", "extracted_text": "search term"},
+        {"id": "doc2", "filename": "semantic.txt", "extracted_text": "completely different wording"},
+    ]
+    base = {
+        "chunking_strategy": "fixed-size", "chunk_size": 100, "overlap": 0,
+        "top_k": 1, "reranking": False, "query_rewrite": False,
+        "embedding_model": "embedding-id", "generation_model": "generation-id",
+    }
+    question = [{"question": "search term", "relevant_passages": []}]
+    dense = pipeline.execute_experiment({}, docs, question, {**base, "retrieval_method": "dense"})
+    sparse = pipeline.execute_experiment({}, docs, question, {**base, "retrieval_method": "bm25"})
+    assert dense["cases"][0]["retrieved"][0]["filename"] == "semantic.txt"
+    assert sparse["cases"][0]["retrieved"][0]["filename"] == "lexical.txt"
