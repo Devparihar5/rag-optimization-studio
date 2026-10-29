@@ -38,7 +38,8 @@ def test_dataset_upload_persistence_and_cascade(tmp_path: Path, monkeypatch) -> 
     assert client.get(f"/api/benchmarks/{benchmark.json()['id']}").json()["question_count"] == 1
 
     experiment = client.post("/api/experiments", json={
-        "name": "baseline", "dataset_id": dataset_id, "benchmark_id": benchmark.json()["id"]
+        "name": "baseline", "dataset_id": dataset_id, "benchmark_id": benchmark.json()["id"],
+        "config": {"embedding_model": "configured-embedding", "generation_model": "configured-generation"}
     })
     assert experiment.status_code == 201
     experiment_id = experiment.json()["id"]
@@ -69,10 +70,11 @@ def test_rejects_benchmark_from_another_dataset(tmp_path: Path, monkeypatch) -> 
         for name in ("first corpus", "second corpus")
     ]
     benchmark = client.post("/api/benchmarks", json={
-        "name": "first benchmark", "dataset_id": dataset_ids[0], "questions": []
+        "name": "first benchmark", "dataset_id": dataset_ids[0], "questions": [{"question": "What is this corpus?"}]
     }).json()
     response = client.post("/api/experiments", json={
-        "name": "invalid pairing", "dataset_id": dataset_ids[1], "benchmark_id": benchmark["id"]
+        "name": "invalid pairing", "dataset_id": dataset_ids[1], "benchmark_id": benchmark["id"],
+        "config": {"embedding_model": "configured-embedding", "generation_model": "configured-generation"}
     })
     assert response.status_code == 409
 
@@ -103,10 +105,11 @@ def test_deleting_benchmark_unlinks_experiment(tmp_path: Path, monkeypatch) -> N
     client = TestClient(main.app)
     dataset_id = client.post("/api/datasets", json={"name": "sample corpus"}).json()["id"]
     benchmark = client.post("/api/benchmarks", json={
-        "name": "sample benchmark", "dataset_id": dataset_id, "questions": []
+        "name": "sample benchmark", "dataset_id": dataset_id, "questions": [{"question": "What is this corpus?"}]
     }).json()
     experiment = client.post("/api/experiments", json={
-        "name": "sample experiment", "dataset_id": dataset_id, "benchmark_id": benchmark["id"]
+        "name": "sample experiment", "dataset_id": dataset_id, "benchmark_id": benchmark["id"],
+        "config": {"embedding_model": "configured-embedding", "generation_model": "configured-generation"}
     }).json()
 
     response = client.delete(f"/api/benchmarks/{benchmark['id']}")
