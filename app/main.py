@@ -139,7 +139,7 @@ class BenchmarkQuestion(BaseModel):
 class BenchmarkCreateRequest(BaseModel):
     name: str = Field(min_length=3, max_length=200)
     dataset_id: str
-    questions: list[BenchmarkQuestion] = Field(default_factory=list)
+    questions: list[BenchmarkQuestion] = Field(min_length=1, max_length=1000)
 
 
 class BenchmarkRecord(BaseModel):
@@ -380,6 +380,30 @@ async def list_benchmarks() -> list[dict[str, Any]]:
     with connect() as db:
         rows = db.execute("SELECT * FROM benchmarks ORDER BY created_at DESC").fetchall()
     return [benchmark_record(row) for row in rows]
+
+
+class BenchmarkUpdateRequest(BaseModel):
+    name: str = Field(min_length=3, max_length=200)
+    dataset_id: str
+    questions: list[BenchmarkQuestion] = Field(min_length=1, max_length=1000)
+
+
+@app.put("/api/benchmarks/{benchmark_id}", tags=["benchmarks"])
+async def update_benchmark(benchmark_id: str, body: BenchmarkUpdateRequest) -> dict[str, Any]:
+    with connect() as db:
+        existing = db.execute("SELECT id FROM benchmarks WHERE id=?", (benchmark_id,)).fetchone()
+        if existing is None:
+            raise HTTPException(status_code=404, detail="Benchmark not found")
+        if db.execute("SELECT 1 FROM datasets WHERE id=?", (body.dataset_id,)).fetchone() is None:
+            raise HTTPException(status_code=404, detail="Dataset not found")
+        db.execute(
+            "UPDATE benchmarks SET name=?,dataset_id=?,questions_json=? WHERE id=?",
+            (body.name, body.dataset_id,
+             json.dumps([question.model_dump() for question in body.questions]), benchmark_id),
+        )
+    with connect() as db:
+        row = db.execute("SELECT * FROM benchmarks WHERE id=?", (benchmark_id,)).fetchone()
+    return benchmark_record(row)
 
 
 @app.get("/api/benchmarks/{benchmark_id}", tags=["benchmarks"])
