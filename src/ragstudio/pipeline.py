@@ -249,7 +249,6 @@ def execute_experiment(dataset: dict[str, Any], documents: list[dict[str, Any]],
                 f"Rewrite the following user question as a concise search query. Return only the query.\n\nQuestion: {question_text}",
                 "You rewrite search queries faithfully without answering them.")
             retrieval_query = rewritten.strip() or question_text
-        rankings: list[list[int]] = []
         lexical_scores = bm25_scores(retrieval_query, texts)
         lexical_rank = sorted(range(len(texts)), key=lambda i: lexical_scores[i], reverse=True)
         if config["retrieval_method"] == "bm25":
